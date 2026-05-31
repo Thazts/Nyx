@@ -1,0 +1,244 @@
+.Container {
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.Glow {
+    position: absolute;
+    width: 560px;
+    height: 560px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(212,176,204,0.07) 0%, transparent 68%);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    animation: GlowBreathe 5s ease-in-out infinite;
+}
+
+@keyframes GlowBreathe {
+    0%, 100% { opacity: 0.7; transform: translate(-50%, -50%) scale(1); }
+    50%       { opacity: 1;   transform: translate(-50%, -50%) scale(1.08); }
+}
+
+.GridDots {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.18;
+    background-image: radial-gradient(circle, var(--txt3) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 0%, transparent 100%);
+}
+
+.DecoLine {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0.06;
+    border: 1px solid var(--acc);
+    border-radius: 50%;
+    animation: DecoRotate 28s linear infinite;
+}
+
+.DecoLine:nth-child(1) {
+    width: 340px;
+    height: 340px;
+    top: 50%;
+    left: 50%;
+    margin-top: -170px;
+    margin-left: -170px;
+}
+
+.DecoLine:nth-child(2) {
+    width: 520px;
+    height: 520px;
+    top: 50%;
+    left: 50%;
+    margin-top: -260px;
+    margin-left: -260px;
+    animation-direction: reverse;
+    animation-duration: 44s;
+    opacity: 0.035;
+}
+
+@keyframes DecoRotate {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+.Content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    position: relative;
+    z-index: 1;
+}
+
+.Brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    animation: EnterUp 0.55s var(--spring) both;
+}
+
+.BrandRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.BrandDot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--acc);
+    box-shadow: 0 0 14px rgba(212,176,204,0.7), 0 0 28px rgba(212,176,204,0.3);
+    animation: DotPulse 2.4s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+@keyframes DotPulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(212,176,204,0.5), 0 0 22px rgba(212,176,204,0.2); }
+    50%       { box-shadow: 0 0 18px rgba(212,176,204,0.8), 0 0 36px rgba(212,176,204,0.4); }
+}
+
+.Title {
+    font-size: 42px;
+    font-weight: 700;
+    color: var(--txt);
+    letter-spacing: 0.18em;
+    font-family: 'Syne', sans-serif;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.Tagline {
+    font-size: 11.5px;
+    color: var(--txt3);
+    letter-spacing: 0.06em;
+    font-family: 'JetBrains Mono', monospace;
+    animation: EnterUp 0.5s var(--spring) both;
+    animation-delay: 0.06s;
+    margin-top: 4px;
+}
+
+.Actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 36px;
+    width: 248px;
+    animation: EnterUp 0.5s var(--spring) both;
+    animation-delay: 0.13s;
+}
+
+.PrimaryBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 13px 24px;
+    background: var(--acc);
+    color: var(--bg);
+    border: none;
+    border-radius: 11px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+    width: 100%;
+    transition: transform var(--td) var(--spring), box-shadow var(--td) var(--spring), background var(--tf);
+    letter-spacing: 0.01em;
+}
+
+.PrimaryBtn:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 10px 28px rgba(212,176,204,0.32), 0 2px 8px rgba(212,176,204,0.2);
+}
+
+.PrimaryBtn:active {
+    transform: translateY(0) scale(0.97);
+    transition-duration: var(--td-fast);
+}
+
+.PrimaryBtn svg {
+    flex-shrink: 0;
+}
+
+.GhostBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 24px;
+    background: transparent;
+    color: var(--txt3);
+    border: 1px solid var(--brd);
+    border-radius: 11px;
+    font-size: 12px;
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+    width: 100%;
+    transition: color var(--tf), border-color var(--tf), transform var(--td) var(--spring), box-shadow var(--td) var(--spring);
+    letter-spacing: 0.01em;
+}
+
+.GhostBtn:hover {
+    color: var(--txt2);
+    border-color: rgba(212,176,204,0.18);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+}
+
+.GhostBtn:active {
+    transform: translateY(0) scale(0.97);
+    transition-duration: var(--td-fast);
+}
+
+.LoadingState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    animation: EnterUp 0.4s var(--spring) both;
+}
+
+.LoadingCat {
+    width: 72px;
+    height: 72px;
+    object-fit: contain;
+    animation: CatSpin 1s var(--spring) infinite;
+}
+
+@keyframes CatSpin {
+    0%   { transform: rotate(0deg) scale(1); }
+    50%  { transform: rotate(180deg) scale(1.1); }
+    100% { transform: rotate(360deg) scale(1); }
+}
+
+.LoadingLabel {
+    font-size: 11.5px;
+    color: var(--txt3);
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.04em;
+    animation: Pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes Pulse {
+    0%, 100% { opacity: 0.4; }
+    50%       { opacity: 1; }
+}
+
+/* ── Entrance keyframe ── */
+
+@keyframes EnterUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to   { opacity: 1; transform: translateY(0); }
+}

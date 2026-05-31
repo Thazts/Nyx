@@ -1,0 +1,311 @@
+.Container {
+    flex-shrink: 0;
+    background: var(--bg);
+    border-right: 1px solid var(--brd);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+}
+
+.ResizeHandle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    z-index: 10;
+    background: transparent;
+    transition: background var(--tf);
+}
+
+.ResizeHandle:hover {
+    background: linear-gradient(to right, transparent, var(--acc08));
+}
+
+.Header {
+    padding: 6px 8px 5px 13px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+.NewFileButton {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: color var(--tf), background var(--tf);
+    flex-shrink: 0;
+}
+
+.NewFileButton:hover {
+    color: var(--txt2);
+    background: rgba(255,255,255,0.06);
+}
+
+.NewFileButton:active {
+    transform: scale(0.88);
+    transition-duration: var(--td-fast);
+}
+
+.NamingRow {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 13px 2px 12px;
+    animation: NamingEnter 0.14s var(--smooth-out) both;
+}
+
+@keyframes NamingEnter {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.NamingInput {
+    flex: 1;
+    background: var(--surf2);
+    border: 1px solid var(--acc08);
+    border-radius: 4px;
+    color: var(--txt);
+    font-size: 11.5px;
+    font-family: inherit;
+    padding: 2px 6px;
+    outline: none;
+    min-width: 0;
+    transition: border-color var(--tf);
+}
+
+.NamingInput:focus {
+    border-color: rgba(212,176,204,0.35);
+    box-shadow: 0 0 0 2px rgba(212,176,204,0.06);
+}
+
+.List {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 10px;
+}
+
+.Item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    color: var(--txt2);
+    cursor: default;
+    user-select: none;
+    white-space: nowrap;
+    transition: background var(--tf), color var(--tf), transform var(--td) var(--spring), box-shadow var(--td) var(--spring);
+    padding: 3px 13px;
+    position: relative;
+}
+
+.Item:hover {
+    background: rgba(255,255,255,.03);
+    color: var(--txt);
+    transform: translateX(2px);
+    box-shadow: var(--shadow-sm);
+}
+
+.Item:active {
+    transform: translateX(0px) scale(0.98);
+    transition-duration: var(--td-fast);
+}
+
+.Active {
+    background: var(--acc08);
+    color: var(--acc);
+    box-shadow: inset 2px 0 0 var(--acc);
+}
+
+.Active:hover {
+    background: rgba(212,176,204,0.12);
+    box-shadow: inset 2px 0 0 var(--acc), var(--shadow-glow);
+}
+
+.Clicked {
+    animation: ClickPulse var(--td) var(--spring);
+}
+
+@keyframes ClickPulse {
+    0%   { transform: translateX(2px) scale(0.97); }
+    60%  { transform: translateX(3px) scale(1.01); }
+    100% { transform: translateX(2px) scale(1); }
+}
+
+.Icon {
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+    transition: transform var(--td) var(--spring);
+}
+
+.Item:hover .Icon {
+    transform: scale(1.15);
+}
+
+.Name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.CollapsedIcon {
+    transform: rotate(-90deg);
+    transition: transform var(--td) var(--spring);
+}
+
+.ExpandedIcon {
+    transform: rotate(0deg);
+    transition: transform var(--td) var(--spring);
+}
+
+.ChildrenContainer {
+    overflow: hidden;
+    animation: SlideDown var(--td) var(--spring) both;
+}
+
+.Collapsing {
+    animation: SlideUp var(--td) var(--spring) forwards;
+}
+
+@keyframes SlideDown {
+    from { max-height: 0; opacity: 0; }
+    to   { max-height: 9999px; opacity: 1; }
+}
+
+@keyframes SlideUp {
+    from { max-height: 9999px; opacity: 1; }
+    to   { max-height: 0; opacity: 0; }
+}
+
+.Footer {
+    flex-shrink: 0;
+    border-top: 1px solid var(--brd);
+    padding: 5px 8px;
+    animation: FooterEnter var(--td) var(--spring) both;
+}
+
+@keyframes FooterEnter {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.SaveAllButton {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    padding: 5px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    font-size: 10px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf), background var(--tf), transform var(--td) var(--spring);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.SaveAllButton:hover {
+    color: #BC96DF;
+    border-color: rgba(160,123,196,0.3);
+    background: rgba(160,123,196,0.07);
+}
+
+.SaveAllButton:active {
+    transform: scale(0.97);
+    transition-duration: var(--td-fast);
+}
+
+.ContextMenu {
+    position: fixed;
+    z-index: 9000;
+    background: var(--surf2);
+    border: 1px solid var(--brd);
+    border-radius: 7px;
+    padding: 3px;
+    min-width: 158px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.25);
+    animation: CtxEnter 0.1s ease-out both;
+    user-select: none;
+}
+
+@keyframes CtxEnter {
+    from { opacity: 0; transform: scale(0.95) translateY(-4px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+.ContextMenuItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 9px;
+    font-size: 11.5px;
+    color: var(--txt2);
+    border-radius: 4px;
+    cursor: default;
+    transition: background 0.13s ease, color 0.13s ease,
+                transform 0.18s var(--spring), box-shadow 0.18s var(--spring);
+    transform: translateX(0) scale(1);
+}
+
+.ContextMenuItem:hover {
+    background: var(--acc08);
+    color: var(--txt);
+    transform: translateX(3px) scale(1.025);
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.18);
+}
+
+.ContextMenuItem:active {
+    transform: translateX(1px) scale(0.98);
+    transition-duration: 0.08s;
+}
+
+.ContextMenuDanger {
+    color: #c97070;
+}
+
+.ContextMenuDanger:hover {
+    background: rgba(220, 80, 80, 0.12);
+    color: #e06060;
+    box-shadow: 2px 2px 10px rgba(180, 40, 40, 0.15);
+}
+
+.ContextMenuSep {
+    height: 1px;
+    background: var(--brd);
+    margin: 3px 4px;
+}
+
+.SaveCount {
+    margin-left: auto;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    padding: 0 4px;
+    background: rgba(160,123,196,0.18);
+    color: #A07BC4;
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+}

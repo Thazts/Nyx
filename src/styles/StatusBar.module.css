@@ -1,0 +1,78 @@
+.Container {
+    height: 22px;
+    background: var(--acc);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 10px;
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--bg);
+    flex-shrink: 0;
+    letter-spacing: 0.03em;
+}
+
+.Left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.Right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.Item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0.72;
+    cursor: default;
+    transition: opacity var(--tf), transform var(--td) var(--spring);
+}
+
+.Item:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+}
+
+.Item:active {
+    transform: translateY(0px);
+    transition-duration: var(--td-fast);
+}
+
+.Button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0.72;
+    cursor: pointer;
+    transition: opacity var(--tf), transform var(--td) var(--spring), box-shadow var(--td) var(--spring);
+    border: none;
+    background: transparent;
+    color: var(--bg);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.Button:hover {
+    opacity: 1;
+    transform: scale(1.05);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+
+.Button:active {
+    transform: scale(0.95);
+    transition-duration: var(--td-fast);
+}
+
+.ButtonClicked {
+    transform: scale(0.92);
+    transition-duration: var(--td-fast);
+}

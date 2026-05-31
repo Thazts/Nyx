@@ -1,0 +1,496 @@
+.Panel {
+    position: fixed;
+    width: 480px;
+    background: rgba(13, 11, 17, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 12px;
+    box-shadow:
+        0 28px 80px rgba(0, 0, 0, 0.75),
+        0 0 0 1px rgba(212, 176, 204, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(24px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 9999;
+    animation: PanelIn var(--td) var(--smooth-out) both;
+    user-select: none;
+}
+
+@keyframes PanelIn {
+    from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.Header {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 11px 12px;
+    background: rgba(33, 29, 40, 0.65);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    cursor: grab;
+    flex-shrink: 0;
+}
+
+.Header:active { cursor: grabbing; }
+
+.Badge {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    padding: 3px 8px;
+    background: rgba(212, 176, 204, 0.1);
+    color: var(--acc);
+    border-radius: 4px;
+    border: 1px solid rgba(212, 176, 204, 0.2);
+}
+
+.HeaderTitle {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--txt2);
+    flex: 1;
+    letter-spacing: 0.04em;
+}
+
+.KeyHint {
+    font-size: 9px;
+    color: var(--txt3);
+    background: var(--bg);
+    border: 1px solid var(--brd);
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-family: 'Consolas', monospace;
+}
+
+.CloseBtn {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color var(--tf), background var(--tf);
+    font-size: 15px;
+    padding: 0;
+    font-family: inherit;
+    line-height: 1;
+}
+
+.CloseBtn:hover { color: var(--txt); background: rgba(255, 255, 255, 0.06); }
+
+.TabBar {
+    display: flex;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    background: rgba(27, 23, 32, 0.5);
+    flex-shrink: 0;
+}
+
+.Tab {
+    flex: 1;
+    padding: 9px 4px;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: color var(--tf), background var(--tf);
+    font-family: inherit;
+    position: relative;
+}
+
+.Tab:hover { color: var(--txt2); background: rgba(255, 255, 255, 0.025); }
+
+.TabActive {
+    color: var(--acc) !important;
+}
+
+.TabActive::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 18%;
+    right: 18%;
+    height: 1.5px;
+    background: var(--acc);
+    border-radius: 2px;
+}
+
+.Content {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-height: 380px;
+}
+
+.Section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.SectionLabel {
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.NoWorkspace {
+    padding: 20px;
+    font-size: 11px;
+    color: var(--txt3);
+    text-align: center;
+    border: 1px solid var(--brd);
+    border-radius: 7px;
+    background: rgba(33, 29, 40, 0.4);
+}
+
+.TestGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 7px;
+}
+
+.TestBtn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 10px 12px;
+    background: var(--surf2);
+    border: 1px solid var(--brd);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background var(--tf), border-color var(--tf), transform calc(var(--td) * 0.6) var(--spring);
+    font-family: inherit;
+    text-align: left;
+}
+
+.TestBtn:hover:not(:disabled) {
+    background: rgba(33, 29, 40, 0.95);
+    border-color: rgba(212, 176, 204, 0.18);
+}
+
+.TestBtn:active:not(:disabled) {
+    transform: scale(0.97);
+}
+
+.TestBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.TestBtnBusy {
+    border-color: rgba(212, 176, 204, 0.25) !important;
+    animation: BtnPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes BtnPulse {
+    0%, 100% { box-shadow: none; }
+    50%       { box-shadow: 0 0 12px rgba(212, 176, 204, 0.1); }
+}
+
+.TestBtnName {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--txt);
+}
+
+.TestBtnDesc {
+    font-size: 9px;
+    color: var(--txt3);
+    line-height: 1.4;
+}
+
+.ScriptRow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 11px;
+    background: var(--surf2);
+    border: 1px solid var(--brd);
+    border-radius: 7px;
+    transition: border-color var(--tf);
+}
+
+.ScriptRow:hover { border-color: rgba(255, 255, 255, 0.08); }
+
+.ScriptInfo { flex: 1; min-width: 0; }
+
+.ScriptName {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--txt);
+}
+
+.ScriptDesc {
+    font-size: 9px;
+    color: var(--txt3);
+    margin-top: 2px;
+}
+
+.ScriptActions {
+    display: flex;
+    gap: 5px;
+    flex-shrink: 0;
+}
+
+.ActionBtn {
+    padding: 5px 9px;
+    font-size: 9.5px;
+    font-weight: 600;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+    font-family: inherit;
+    white-space: nowrap;
+}
+
+.ActionBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.ActionBtnInject { color: var(--txt3); }
+.ActionBtnInject:hover:not(:disabled) {
+    color: var(--txt2);
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.ActionBtnRun { color: #7aaac8; border-color: rgba(122, 170, 200, 0.2); }
+.ActionBtnRun:hover:not(:disabled) {
+    color: #9bbcd8;
+    border-color: rgba(122, 170, 200, 0.35);
+    background: rgba(122, 170, 200, 0.07);
+}
+
+.StatBlock {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.StatRow {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.StatHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.StatLabel {
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--txt2);
+    letter-spacing: 0.04em;
+}
+
+.StatValue {
+    font-size: 9px;
+    color: var(--txt3);
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.BarTrack {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.BarFill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease;
+    background: linear-gradient(90deg, rgba(212, 176, 204, 0.45), var(--acc));
+}
+
+.BarFillWarn {
+    background: linear-gradient(90deg, rgba(232, 200, 162, 0.45), #E8C8A2);
+}
+
+.MonitorControls {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    margin-top: 2px;
+}
+
+.LiveToggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 11px;
+    border-radius: 6px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    cursor: pointer;
+    transition: border-color var(--tf), background var(--tf);
+    font-family: inherit;
+    flex: 1;
+}
+
+.LiveToggleOn {
+    border-color: rgba(100, 220, 130, 0.25) !important;
+    background: rgba(100, 220, 130, 0.05) !important;
+}
+
+.LiveDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--txt3);
+    flex-shrink: 0;
+    transition: background var(--tf), box-shadow var(--tf);
+}
+
+.LiveDotOn {
+    background: #64dc82 !important;
+    box-shadow: 0 0 7px rgba(100, 220, 130, 0.65) !important;
+    animation: DotBlink 1.5s ease-in-out infinite;
+}
+
+@keyframes DotBlink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
+}
+
+.LiveLabel {
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--txt3);
+    transition: color var(--tf);
+}
+
+.LiveLabelOn { color: #64dc82 !important; }
+
+.RefreshBtn {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    font-size: 9.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf);
+    font-family: inherit;
+}
+
+.RefreshBtn:hover {
+    color: var(--txt2);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.NoStats {
+    font-size: 10px;
+    color: var(--txt3);
+    text-align: center;
+    padding: 18px;
+}
+
+.InspectTable {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--brd);
+    border-radius: 7px;
+    overflow: hidden;
+}
+
+.InspectRow {
+    display: flex;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.InspectRow:last-child { border-bottom: none; }
+
+.InspectKey {
+    width: 110px;
+    flex-shrink: 0;
+    padding: 7px 10px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    background: rgba(33, 29, 40, 0.6);
+    border-right: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.InspectVal {
+    flex: 1;
+    padding: 7px 10px;
+    font-size: 10px;
+    color: var(--txt2);
+    font-family: 'Consolas', 'Monaco', monospace;
+    word-break: break-all;
+    min-width: 0;
+}
+
+.InspectValGreen { color: #64dc82; }
+.InspectValDim   { color: var(--txt3); font-style: italic; }
+.InspectValAcc   { color: var(--acc); }
+
+.DumpBtn {
+    padding: 7px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    font-size: 9.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+    font-family: inherit;
+    align-self: flex-start;
+    letter-spacing: 0.04em;
+}
+
+.DumpBtn:hover {
+    color: var(--acc);
+    border-color: rgba(212, 176, 204, 0.25);
+    background: var(--acc08);
+}
+
+.LogFooter {
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    background: rgba(10, 8, 14, 0.85);
+    padding: 5px 13px 8px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    max-height: 68px;
+    overflow: hidden;
+}
+
+.LogLine {
+    font-size: 9px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    color: var(--txt3);
+    line-height: 1.55;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.LogSuccess { color: #64dc82; }
+.LogError   { color: #E8968A; }
+.LogInfo    { color: var(--acc); }

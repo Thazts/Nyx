@@ -1,0 +1,115 @@
+.Container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--brd);
+    flex-shrink: 0;
+    animation: BarEnter var(--td) var(--spring) both;
+}
+
+@keyframes BarEnter {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.Input {
+    width: 260px;
+    flex-shrink: 0;
+    background: var(--surf2);
+    border: 1px solid var(--brd);
+    border-radius: 5px;
+    padding: 4px 9px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--txt);
+    outline: none;
+    transition: border-color var(--tf), box-shadow var(--tf);
+}
+
+.Input:focus {
+    border-color: rgba(212,176,204,0.35);
+    box-shadow: 0 0 0 2px rgba(212,176,204,0.08);
+}
+
+.Input::placeholder {
+    color: var(--txt3);
+}
+
+.InputNoResults {
+    border-color: rgba(232,150,138,0.4) !important;
+    box-shadow: 0 0 0 2px rgba(232,150,138,0.08) !important;
+}
+
+.Counter {
+    font-size: 10px;
+    color: var(--txt3);
+    white-space: nowrap;
+    min-width: 58px;
+    font-family: 'JetBrains Mono', monospace;
+    transition: color var(--tf);
+}
+
+.CounterNoResults {
+    color: #E8968A;
+}
+
+.Controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+}
+
+.NavButton {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    font-size: 11px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: inherit;
+    padding: 0;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+}
+
+.NavButton:hover:not(:disabled) {
+    color: var(--acc);
+    border-color: rgba(212,176,204,0.3);
+    background: var(--acc08);
+}
+
+.NavButton:disabled {
+    opacity: 0.22;
+    cursor: not-allowed;
+}
+
+.CloseButton {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: inherit;
+    padding: 0;
+    margin-left: 4px;
+    transition: color var(--tf), background var(--tf);
+}
+
+.CloseButton:hover {
+    color: var(--txt);
+    background: rgba(255,255,255,0.06);
+}

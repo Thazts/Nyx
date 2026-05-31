@@ -1,0 +1,442 @@
+.Container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--surf);
+    transition: box-shadow var(--td) var(--spring);
+}
+
+.Focused {
+    box-shadow: inset 0 0 0 1px var(--acc08);
+}
+
+.Tabs {
+    display: flex;
+    align-items: stretch;
+    background: var(--bg);
+    border-bottom: 1px solid var(--brd);
+    height: 35px;
+    flex-shrink: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+}
+
+.Tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.Tab {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 15px;
+    font-size: 11px;
+    color: var(--txt);
+    cursor: pointer;
+    user-select: none;
+    border-right: 1px solid var(--brd);
+    position: relative;
+    white-space: nowrap;
+    background: var(--surf);
+    transition: background var(--tf), color var(--tf), transform var(--td) var(--spring), box-shadow var(--td) var(--spring), opacity var(--td) var(--spring);
+    flex-shrink: 0;
+    animation: TabEnter var(--td) var(--spring) both;
+}
+
+@keyframes TabEnter {
+    from { opacity: 0; transform: translateY(-8px) scale(0.94); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes TabExit {
+    from { opacity: 1; transform: translateY(0) scale(1); max-width: 200px; padding: 0 15px; }
+    to   { opacity: 0; transform: translateY(-6px) scale(0.88); max-width: 0; padding: 0; }
+}
+
+.TabClosing {
+    animation: TabExit var(--td-fast) var(--spring) forwards !important;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+@keyframes DotSaved {
+    0%   { background: var(--acc); box-shadow: none; transform: scale(1); }
+    30%  { background: #7dd4a0; box-shadow: 0 0 8px rgba(125,212,160,0.7); transform: scale(1.5); }
+    70%  { background: #7dd4a0; box-shadow: 0 0 5px rgba(125,212,160,0.4); transform: scale(1.2); }
+    100% { background: var(--acc); box-shadow: none; transform: scale(1); }
+}
+
+.TabSaved .TabDot {
+    animation: DotSaved 1s var(--spring) both;
+}
+
+.Tab:hover {
+    background: rgba(255,255,255,0.03);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.Tab:active {
+    transform: translateY(0px);
+    transition-duration: var(--td-fast);
+}
+
+.ActiveTab {
+    background: var(--surf);
+    border-bottom: 2px solid var(--acc);
+    color: var(--acc);
+}
+
+.ActiveTab:hover {
+    background: rgba(212,176,204,0.05);
+}
+
+.TabDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--acc);
+    flex-shrink: 0;
+    transition: transform var(--td) var(--spring), box-shadow var(--td) var(--spring),
+                background var(--tf), border var(--tf);
+}
+
+.Tab:hover .TabDot {
+    transform: scale(1.4);
+    box-shadow: 0 0 8px rgba(212,176,204,0.5);
+}
+
+.TabModified .TabDot {
+    background: #A07BC4;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 0 5px rgba(160,123,196,0.4);
+}
+
+.TabModified:hover .TabDot {
+    background: #BC96DF;
+    box-shadow: 0 0 9px rgba(160,123,196,0.6);
+}
+
+.TabModified .TabDot:hover {
+    background: #D0AAEF !important;
+    transform: scale(1.8) !important;
+    box-shadow: 0 0 12px rgba(160,123,196,0.8) !important;
+}
+
+.TabClose {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--tf), background var(--tf), transform var(--td) var(--spring);
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+}
+
+.Tab:hover .TabClose {
+    opacity: 0.6;
+}
+
+.TabClose:hover {
+    opacity: 1 !important;
+    background: rgba(255,80,80,0.15);
+    color: #ff8080;
+    transform: scale(1.2);
+}
+
+.TabClose:active {
+    transform: scale(0.85);
+    transition-duration: var(--td-fast);
+}
+
+.Breadcrumb {
+    padding: 0 16px;
+    height: 26px;
+    font-size: 10.5px;
+    color: var(--txt3);
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    background: var(--surf);
+    border-bottom: 1px solid var(--brd);
+    flex-shrink: 0;
+}
+
+.Breadcrumb span {
+    transition: color var(--tf), transform var(--td) var(--spring);
+    cursor: default;
+}
+
+.Breadcrumb span:hover {
+    color: var(--txt2);
+    transform: translateY(-1px);
+}
+
+.Sep {
+    opacity: 0.25;
+}
+
+.EditorWrapper {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    background: var(--surf);
+    position: relative;
+}
+
+.CodeArea {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: var(--surf);
+}
+
+.Overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 14px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.78;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    tab-size: 4;
+    -moz-tab-size: 4;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+    color: var(--txt);
+}
+
+@keyframes SlideInFromRight {
+    from { opacity: 0; transform: translateX(11px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes SlideInFromLeft {
+    from { opacity: 0; transform: translateX(-11px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes SlideInFromBelow {
+    from { opacity: 0; transform: translateY(7px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes SlideInFromAbove {
+    from { opacity: 0; transform: translateY(-7px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes FadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.SlideFromRight { animation: SlideInFromRight 0.21s var(--smooth-out) both; }
+.SlideFromLeft  { animation: SlideInFromLeft  0.21s var(--smooth-out) both; }
+.SlideFromBelow { animation: SlideInFromBelow 0.18s var(--smooth-out) both; }
+.SlideFromAbove { animation: SlideInFromAbove 0.18s var(--smooth-out) both; }
+.FadeIn         { animation: FadeIn 0.14s ease-out both; }
+
+.LineNumbers {
+    width: 46px;
+    flex-shrink: 0;
+    padding: 14px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.78;
+    text-align: right;
+    user-select: none;
+    color: var(--txt3);
+    background: var(--surf);
+    overflow: hidden;
+    overflow-y: scroll;
+    scrollbar-width: none;
+}
+
+.LineNumbers::-webkit-scrollbar {
+    display: none;
+}
+
+.LineNum {
+    display: block;
+    padding-right: 10px;
+    transition: color var(--tf), transform var(--td) var(--spring);
+}
+
+.LineNum:hover {
+    color: var(--txt2);
+    transform: translateX(-2px);
+}
+
+.ActiveLine {
+    color: var(--txt2);
+    font-weight: 500;
+}
+
+.TextArea {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    padding: 14px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.78;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--txt);
+    border: none;
+    outline: none;
+    resize: none;
+    z-index: 1;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    tab-size: 4;
+    -moz-tab-size: 4;
+    overflow: auto;
+    transition: box-shadow var(--td) var(--spring);
+}
+
+.TextArea:focus {
+    box-shadow: inset 0 0 0 1px var(--acc08), var(--shadow-glow);
+}
+
+.TextArea::selection {
+    background: rgba(212,176,204,0.28);
+    color: transparent;
+}
+
+.SearchOverlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 14px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.78;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    tab-size: 4;
+    -moz-tab-size: 4;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: -1;
+    color: transparent;
+}
+
+.SearchMatch {
+    background: rgba(212,176,204,0.18);
+    border-radius: 2px;
+    color: transparent;
+}
+
+.SearchMatchFuzzy {
+    background: rgba(212,190,140,0.14);
+    border-radius: 2px;
+    outline: 1px dashed rgba(212,190,140,0.3);
+    color: transparent;
+}
+
+.SearchMatchActive {
+    background: rgba(212,176,204,0.48);
+    border-radius: 2px;
+    outline: 1px solid rgba(212,176,204,0.6);
+    color: transparent;
+}
+.Scrolling::-webkit-scrollbar-thumb {
+    background-color: rgba(212,176,204,0.42);
+    border-width: 0.5px;
+}
+
+.SearchScrollTrack {
+    width: 8px;
+    flex-shrink: 0;
+    position: relative;
+    background: rgba(255,255,255,0.025);
+    border-left: 1px solid var(--brd);
+}
+
+.SearchScrollDot {
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(212,176,204,0.3);
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition: background var(--tf), transform var(--tf);
+}
+
+.SearchScrollDot:hover {
+    background: rgba(212,176,204,0.65);
+    transform: translateY(-50%) scaleY(1.8);
+}
+
+.SearchScrollDotFuzzy {
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(212,190,140,0.22);
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition: background var(--tf), transform var(--tf);
+}
+
+.SearchScrollDotFuzzy:hover {
+    background: rgba(212,190,140,0.5);
+    transform: translateY(-50%) scaleY(1.8);
+}
+
+.SearchScrollDotActive {
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(212,176,204,0.85);
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition: background var(--tf), transform var(--tf);
+}
+
+.ViewportContainer {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: #10101a;
+}
+
+.ViewportTab .TabDot {
+    background: #5a8aaa !important;
+    box-shadow: 0 0 6px rgba(90,138,170,0.4);
+}
+
+.ViewportTab.ActiveTab .TabDot {
+    background: #7ab0cc !important;
+    box-shadow: 0 0 8px rgba(122,176,204,0.5);
+}

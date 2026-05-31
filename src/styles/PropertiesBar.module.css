@@ -1,0 +1,419 @@
+.Container {
+    flex-shrink: 0;
+    background: var(--bg);
+    border-left: 1px solid var(--brd);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+}
+
+.ResizeHandle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    z-index: 10;
+    background: transparent;
+    transition: background var(--tf);
+}
+
+.ResizeHandle:hover {
+    background: linear-gradient(to left, transparent, var(--acc08));
+}
+
+.PropertiesSection {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.Header {
+    padding: 9px 13px 5px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.PropertiesContent {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+}
+
+.Empty {
+    padding: 13px;
+    font-size: 11px;
+    color: var(--txt3);
+    text-align: center;
+}
+
+.Row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: RowEnter var(--td) var(--spring) both;
+}
+
+@keyframes RowEnter {
+    from { opacity: 0; transform: translateX(8px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+.Label {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    font-weight: 600;
+}
+
+.Value {
+    font-size: 11px;
+    word-break: break-all;
+}
+
+.Char {
+    color: var(--txt2);
+    animation: CharType 0.32s var(--smooth-out) both;
+}
+
+@keyframes CharType {
+    0%   { opacity: 0; color: var(--acc); }
+    14%  { opacity: 1; color: var(--acc); }
+    100% { opacity: 1; color: var(--txt2); }
+}
+
+.SplitHandle {
+    height: 5px;
+    flex-shrink: 0;
+    background: var(--brd);
+    cursor: row-resize;
+    transition: background var(--tf);
+}
+
+.SplitHandle:hover {
+    background: var(--acc08);
+}
+
+.ViewportControls {
+    padding: 8px 13px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ViewportControlLabel {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    font-weight: 600;
+}
+
+.SelectedInfo {
+    font-size: 10px;
+    color: var(--txt2);
+    background: rgba(255, 215, 0, 0.08);
+    border: 1px solid rgba(255, 215, 0, 0.25);
+    border-radius: 3px;
+    padding: 4px 7px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    word-break: break-all;
+}
+
+.SelectedInfoEmpty {
+    font-size: 10px;
+    color: var(--txt3);
+    font-style: italic;
+    padding: 4px 2px;
+}
+
+.GizmoModeRow {
+    display: flex;
+    gap: 4px;
+}
+
+.GizmoBtn {
+    flex: 1;
+    padding: 5px 4px;
+    font-size: 10px;
+    font-family: inherit;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+    user-select: none;
+    white-space: nowrap;
+}
+
+.GizmoBtn:hover:not(:disabled) {
+    color: var(--txt2);
+    border-color: rgba(255,255,255,0.18);
+    background: var(--acc04);
+}
+
+.GizmoBtnActive {
+    background: rgba(50, 90, 150, 0.35);
+    border-color: rgba(100, 160, 230, 0.45);
+    color: var(--txt);
+}
+
+.GizmoBtnActive:hover {
+    background: rgba(60, 105, 170, 0.45);
+}
+
+.GizmoBtn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.OutputSection {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.OutputHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-right: 8px;
+    flex-shrink: 0;
+}
+
+.OutputTitle {
+    padding: 9px 13px 5px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    font-weight: 600;
+}
+
+.OutputControls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.RunButton {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    font-size: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+    font-family: inherit;
+    padding: 0;
+}
+
+.RunButton:hover:not(:disabled) {
+    color: var(--acc);
+    border-color: rgba(212,176,204,0.3);
+    background: var(--acc08);
+}
+
+.RunButton:disabled {
+    opacity: 0.28;
+    cursor: not-allowed;
+}
+
+.RunButton.Running {
+    color: var(--acc);
+    border-color: rgba(212,176,204,0.3);
+    animation: Pulse 1s ease-in-out infinite;
+}
+
+@keyframes Pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+}
+
+.ViewportButton {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: #5a8aaa;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+    font-family: inherit;
+    padding: 0;
+}
+
+.ViewportButton:hover {
+    color: #7ab0cc;
+    border-color: rgba(90,138,170,0.35);
+    background: rgba(90,138,170,0.08);
+}
+
+.ClearButton {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    font-size: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+    font-family: inherit;
+    padding: 0;
+}
+
+.ClearButton:hover:not(:disabled) {
+    color: var(--txt2);
+    border-color: rgba(255,255,255,0.15);
+    background: var(--acc04);
+}
+
+.ClearButton:disabled {
+    opacity: 0.2;
+    cursor: not-allowed;
+}
+
+.OutputContent {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 13px 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.OutputEmpty {
+    font-size: 10px;
+    color: var(--txt3);
+    text-align: center;
+    padding-top: 16px;
+}
+
+.Line {
+    font-size: 10.5px;
+    color: var(--txt2);
+    font-family: 'Consolas', 'Monaco', monospace;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.LineRun {
+    font-size: 10.5px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--acc);
+    font-weight: 600;
+    padding-top: 10px;
+}
+
+.LineRun:first-child {
+    padding-top: 0;
+}
+
+.LineErr {
+    font-size: 10.5px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: #E8968A;
+}
+
+.LineExit {
+    font-size: 10.5px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--txt3);
+    font-style: italic;
+    padding-bottom: 6px;
+}
+
+.PartInspector {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 6px 0 4px;
+    overflow-y: auto;
+}
+
+.InspectorGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.InspectorRow {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 12px;
+    cursor: text;
+}
+
+.AxisLabel {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--txt3);
+    width: 10px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+
+.InspectorInput {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--brd);
+    border-radius: 3px;
+    color: var(--txt2);
+    font-size: 10px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    padding: 2px 5px;
+    height: 19px;
+    min-width: 0;
+    -moz-appearance: textfield;
+}
+
+.InspectorInput::-webkit-inner-spin-button,
+.InspectorInput::-webkit-outer-spin-button {
+    opacity: 0.35;
+}
+
+.InspectorInput:focus {
+    outline: none;
+    border-color: rgba(100, 160, 230, 0.5);
+    background: rgba(255, 255, 255, 0.07);
+}

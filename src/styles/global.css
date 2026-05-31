@@ -1,0 +1,158 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background-color: rgba(255,255,255,0.10);
+    border-radius: 10px;
+    border: 2.5px solid transparent;
+    background-clip: content-box;
+    transition: background-color var(--td) var(--spring), border-width 0.2s var(--spring);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(212,176,204,0.32);
+    border-width: 1px;
+    transition: background-color 0.12s ease, border-width 0.12s ease;
+}
+
+::-webkit-scrollbar-thumb:active {
+    background-color: rgba(212,176,204,0.55);
+    border-width: 0;
+    transition: background-color 0.08s ease, border-width 0.08s ease;
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+html, body {
+    height: 100%;
+    background: #0C0A10;
+    font-family: 'Syne', sans-serif;
+    overflow: hidden;
+}
+
+:root {
+    --bg: #131115;
+    --surf: #1B1720;
+    --surf2: #211D28;
+    --acc: #D4B0CC;
+    --acc08: rgba(212,176,204,.08);
+    --acc04: rgba(212,176,204,.042);
+    --txt: #EDE8F0;
+    --txt2: #9A9098;
+    --txt3: #56505F;
+    --brd: rgba(255,255,255,.058);
+    --td: .38s;
+    --td-fast: .18s;
+    --tf: .14s;
+    --kw: #D4B0CC;
+    --str: #AACDB4;
+    --fn: #B5C8E8;
+    --num: #E8C8A2;
+    --ty: #CBC0E0;
+    --cmt: #47405A;
+    --op: #8A7E96;
+    --spring: cubic-bezier(.22, 1.85, .36, 1);
+    --smooth-out: cubic-bezier(.22, 1, .36, 1);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+    --shadow-glow: 0 0 12px rgba(212,176,204,0.15);
+}
+
+#root {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.App {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.Main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.EditorPanel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--surf);
+}
+
+.NoWorkspacePanel {
+    width: 190px;
+    flex-shrink: 0;
+    background: var(--bg);
+    border-right: 1px solid var(--brd);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+}
+
+.NoWorkspaceLoading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.OpenFolderInline {
+    padding: 7px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'Syne', sans-serif;
+    color: var(--txt3);
+    background: transparent;
+    border: 1px solid var(--brd);
+    border-radius: 7px;
+    cursor: pointer;
+    width: 100%;
+    transition: color var(--tf), border-color var(--tf), transform var(--td) var(--spring);
+}
+
+.OpenFolderInline:hover {
+    color: var(--txt2);
+    border-color: rgba(212,176,204,0.2);
+    transform: scale(1.03);
+}
+
+.OpenFolderInline:active {
+    transform: scale(0.97);
+    transition-duration: var(--td-fast);
+}
+
+.SpinningCat {
+    object-fit: contain;
+    animation: CatSpin 1s var(--spring) infinite;
+}
+
+@keyframes CatSpin {
+    0%   { transform: rotate(0deg) scale(1); }
+    50%  { transform: rotate(180deg) scale(1.1); }
+    100% { transform: rotate(360deg) scale(1); }
+}

@@ -1,0 +1,169 @@
+.Container {
+    position: relative;
+    border-top: 1px solid var(--brd);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: height var(--td) var(--spring), box-shadow var(--td) var(--spring);
+}
+
+.Open {
+    box-shadow: 0 -2px 16px rgba(212,176,204,0.07);
+}
+.Dragging {
+    transition: box-shadow var(--td) var(--spring) !important;
+}
+
+.Focused {
+    box-shadow: 0 -2px 20px rgba(212,176,204,0.13);
+}
+
+.DragHandle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 5px;
+    cursor: ns-resize;
+    z-index: 10;
+    background: transparent;
+    transition: background var(--tf);
+    flex-shrink: 0;
+}
+
+.DragHandle:hover {
+    background: linear-gradient(to bottom, rgba(212,176,204,0.14), transparent);
+}
+.Header {
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    height: 30px;
+    border-bottom: 1px solid var(--brd);
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.Tab {
+    padding: 3px 10px;
+    font-size: 10.5px;
+    color: var(--acc);
+    cursor: default;
+    border-radius: 5px;
+    user-select: none;
+    transition: background var(--tf), transform var(--td) var(--spring);
+}
+
+.Tab:hover {
+    background: rgba(212,176,204,0.08);
+    transform: translateY(-1px);
+}
+
+.Toggle {
+    margin-left: auto;
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--txt3);
+    font-size: 10px;
+    transition: color var(--tf), background var(--tf), transform var(--td) var(--spring), box-shadow var(--td) var(--spring);
+    border: none;
+    background: transparent;
+}
+
+.Toggle:hover {
+    color: var(--txt);
+    background: rgba(255,255,255,.07);
+    transform: scale(1.2);
+    box-shadow: var(--shadow-glow);
+}
+
+.Toggle:active {
+    transform: scale(0.9);
+    transition-duration: var(--td-fast);
+}
+
+.Output {
+    flex: 1;
+    padding: 8px 16px;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--txt2);
+    min-height: 0;
+}
+
+.Line {
+    display: flex;
+    margin-bottom: 1px;
+    transition: background var(--tf), transform var(--td) var(--spring);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.Line:hover {
+    background: rgba(255,255,255,0.02);
+    transform: translateX(2px);
+}
+
+.InputRow {
+    display: flex;
+    align-items: center;
+    padding: 5px 16px;
+    border-top: 1px solid var(--brd);
+    gap: 6px;
+    transition: background var(--tf);
+    flex-shrink: 0;
+}
+
+.InputRow:focus-within {
+    background: rgba(212,176,204,0.03);
+}
+
+.Prompt {
+    color: var(--acc);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    flex-shrink: 0;
+    transition: transform var(--td) var(--spring);
+}
+
+.InputRow:focus-within .Prompt {
+    transform: scale(1.12) translateX(1px);
+}
+
+.Input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--txt);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+}
+
+.Input::placeholder {
+    color: var(--txt3);
+    transition: color var(--tf);
+}
+
+.Input:focus::placeholder {
+    color: var(--txt2);
+}
+
+.TokError    { color: #E8968A; }
+.TokWarning  { color: var(--num); }
+.TokSuccess  { color: var(--str); }
+.TokFilepath { color: var(--fn); }
+.TokFuncname { color: var(--fn); opacity: 0.85; }
+.TokNumber   { color: var(--num); opacity: 0.8; }
+.TokString   { color: var(--str); opacity: 0.85; }
+.TokKeyword  { color: var(--acc); font-weight: 600; }
+.TokDim      { color: var(--txt3); }
