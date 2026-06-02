@@ -74,6 +74,14 @@ thread_local! {
     static GIZMO_AXIS: RefCell<String>    = RefCell::new(String::new());
 }
 
+fn mark_interaction() {
+    if let Some(sa) = VP_STATE.get() {
+        if let Ok(mut s) = sa.lock() {
+            s.last_interaction = std::time::Instant::now();
+        }
+    }
+}
+
 fn ray_aabb(o: glam::Vec3, d: glam::Vec3, mn: glam::Vec3, mx: glam::Vec3) -> Option<f32> {
     let inv = 1.0 / d;
     let mut tmin = (mn.x - o.x) * inv.x;
@@ -299,6 +307,7 @@ unsafe extern "system" fn wnd_proc(
         WM_LBUTTONDOWN => {
             let x = (lparam & 0xFFFF) as i16;
             let y = ((lparam >> 16) & 0xFFFF) as i16;
+            mark_interaction();
             let axis = VP_STATE.get().and_then(|sa| sa.lock().ok()).and_then(|s| {
                 let (_, _, w, h) = s.bounds;
                 if w == 0 || h == 0 { return None; }
@@ -336,6 +345,9 @@ unsafe extern "system" fn wnd_proc(
 
             let dx = (x - prev_x) as f32;
             let dy = (y - prev_y) as f32;
+            if mode != DragMode::None && (dx != 0.0 || dy != 0.0) {
+                mark_interaction();
+            }
 
             match mode {
                 DragMode::Orbit => {
@@ -378,6 +390,7 @@ unsafe extern "system" fn wnd_proc(
         WM_LBUTTONUP => {
             let x = (lparam & 0xFFFF) as i16;
             let y = ((lparam >> 16) & 0xFFFF) as i16;
+            mark_interaction();
             ReleaseCapture();
 
             let (had_drag, mode) = DRAG.with(|d| {
@@ -415,6 +428,7 @@ unsafe extern "system" fn wnd_proc(
         WM_RBUTTONDOWN => {
             let x = (lparam & 0xFFFF) as i16;
             let y = ((lparam >> 16) & 0xFFFF) as i16;
+            mark_interaction();
             let timer = SetTimer(hwnd, 1, 16, None) as usize;
             DRAG.with(|d| {
                 let mut dr = d.borrow_mut();
@@ -429,6 +443,7 @@ unsafe extern "system" fn wnd_proc(
         }
 
         WM_RBUTTONUP => {
+            mark_interaction();
             ReleaseCapture();
             DRAG.with(|d| {
                 let mut dr = d.borrow_mut();
@@ -440,6 +455,7 @@ unsafe extern "system" fn wnd_proc(
 
         WM_MOUSEWHEEL => {
             let delta = (wparam >> 16) as i16;
+            mark_interaction();
             if let Some(ci) = VP_CAM.get() {
                 if let Ok(mut ci) = ci.lock() { ci.zoom += delta as f32 / 120.0; }
             }
@@ -452,6 +468,7 @@ unsafe extern "system" fn wnd_proc(
                 let rgt = key_held(0x44) - key_held(0x41); // D, A
                 let up  = key_held(0x45) - key_held(0x51); // E, Q
                 if fwd != 0.0 || rgt != 0.0 || up != 0.0 {
+                    mark_interaction();
                     if let Some(ci) = VP_CAM.get() {
                         if let Ok(mut ci) = ci.lock() {
                             ci.forward += fwd; ci.right += rgt; ci.up += up;

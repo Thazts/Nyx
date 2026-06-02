@@ -9,6 +9,13 @@ export const RendererService = {
         });
     },
 
+    async LoadLiveScene(Config: { Commands: SceneCommand[]; Profile: string }): Promise<void> {
+        return invoke("renderer_load_live_scene", {
+            commands: Config.Commands,
+            profile:  Config.Profile,
+        });
+    },
+
     async SetBounds(Config: { X: number; Y: number; Width: number; Height: number }): Promise<void> {
         return invoke("renderer_set_bounds", {
             x:      Config.X,

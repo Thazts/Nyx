@@ -236,6 +236,68 @@
     50%       { opacity: 1; }
 }
 
+.Recent {
+    margin-top: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 248px;
+    animation: EnterUp 0.5s var(--spring) both;
+    animation-delay: 0.2s;
+}
+
+.RecentLabel {
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    font-weight: 700;
+    padding: 0 4px;
+    margin-bottom: 4px;
+}
+
+.RecentItem {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: background var(--tf), transform var(--td) var(--spring);
+}
+
+.RecentItem:hover {
+    background: rgba(255,255,255,0.04);
+    transform: translateX(3px);
+}
+
+.RecentItem:active {
+    transform: translateX(1px) scale(0.98);
+    transition-duration: var(--td-fast);
+}
+
+.RecentName {
+    font-size: 12px;
+    color: var(--txt2);
+    font-family: 'Syne', sans-serif;
+    font-weight: 500;
+}
+
+.RecentPath {
+    font-size: 10px;
+    color: var(--txt3);
+    font-family: 'JetBrains Mono', monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 228px;
+}
+
 /* ── Entrance keyframe ── */
 
 @keyframes EnterUp {

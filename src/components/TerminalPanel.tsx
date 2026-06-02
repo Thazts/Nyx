@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, memo } from "react";
 import styles from "../styles/TerminalPanel.module.css";
 import { TokenizeLine, TerminalTokenType } from "../services/TerminalTokenizer";
 import { UILib, UsePanel } from "../ui/UILib";
+import { AiPanel } from "./AiPanel";
 
 const TOK_CLASS: Record<TerminalTokenType, string> = {
     plain:    '',
@@ -26,18 +27,24 @@ const TermLine = memo(({ Line }: { Line: string }) => (
     </>
 ));
 
+type BottomTab = "terminal" | "ai";
+
 interface TerminalPanelProps {
-    Output:    string[];
-    OnCommand: (Command: string) => void;
+    Output:      string[];
+    OnCommand:   (Command: string) => void;
+    ActiveFile:  string | null;
+    FileContent: string;
+    Workspace:   string | null;
 }
 
-export const TerminalPanel: React.FC<TerminalPanelProps> = ({ Output, OnCommand }) => {
+export const TerminalPanel: React.FC<TerminalPanelProps> = ({ Output, OnCommand, ActiveFile, FileContent, Workspace }) => {
     const IsOpen = UsePanel("Terminal");
     const InputRef = useRef<HTMLInputElement>(null);
     const OutputRef = useRef<HTMLDivElement>(null);
     const [IsInputFocused, SetIsInputFocused] = useState(false);
     const [Height, SetHeight] = useState(220);
     const [IsDragging, SetIsDragging] = useState(false);
+    const [BottomTab, SetBottomTab] = useState<BottomTab>("terminal");
     const IsResizing = useRef(false);
 
     useEffect(() => {
@@ -88,30 +95,43 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ Output, OnCommand 
         >
             <div className={styles.DragHandle} onMouseDown={HandleDragStart} />
             <div className={styles.Header}>
-                <span className={styles.Tab}>Terminal</span>
+                <button
+                    className={`${styles.TabBtn}${BottomTab === "terminal" ? ` ${styles.TabBtnActive}` : ""}`}
+                    onClick={() => SetBottomTab("terminal")}
+                >Terminal</button>
+                <button
+                    className={`${styles.TabBtn}${BottomTab === "ai" ? ` ${styles.TabBtnActive}` : ""}`}
+                    onClick={() => SetBottomTab("ai")}
+                >AI</button>
                 <button className={styles.Toggle} onClick={() => UILib.Toggle("Terminal")}>
                     {IsOpen ? "▼" : "▲"}
                 </button>
             </div>
-            <div className={styles.Output} ref={OutputRef}>
-                {Output.map((Line, I) => (
-                    <div key={I} className={styles.Line}>
-                        <TermLine Line={Line} />
+            {BottomTab === "terminal" ? (
+                <>
+                    <div className={styles.Output} ref={OutputRef}>
+                        {Output.map((Line, I) => (
+                            <div key={I} className={styles.Line}>
+                                <TermLine Line={Line} />
+                            </div>
+                        ))}
                     </div>
-                ))}
-            </div>
-            <div className={styles.InputRow}>
-                <span className={styles.Prompt}>$</span>
-                <input
-                    ref={InputRef}
-                    className={styles.Input}
-                    type="text"
-                    onKeyDown={HandleKeyDown}
-                    onFocus={HandleFocus}
-                    onBlur={HandleBlur}
-                    placeholder="Type a command..."
-                />
-            </div>
+                    <div className={styles.InputRow}>
+                        <span className={styles.Prompt}>$</span>
+                        <input
+                            ref={InputRef}
+                            className={styles.Input}
+                            type="text"
+                            onKeyDown={HandleKeyDown}
+                            onFocus={HandleFocus}
+                            onBlur={HandleBlur}
+                            placeholder="Type a command..."
+                        />
+                    </div>
+                </>
+            ) : (
+                <AiPanel ActiveFile={ActiveFile} FileContent={FileContent} Workspace={Workspace} />
+            )}
         </div>
     );
 };

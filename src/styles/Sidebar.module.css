@@ -295,6 +295,13 @@
     margin: 3px 4px;
 }
 
+.IconBlue   { color: var(--fn);  }
+.IconGreen  { color: var(--str); }
+.IconAmber  { color: var(--num); }
+.IconPurple { color: var(--ty);  }
+.IconPink   { color: var(--kw);  }
+.IconMuted  { color: var(--txt3);}
+
 .SaveCount {
     margin-left: auto;
     min-width: 16px;

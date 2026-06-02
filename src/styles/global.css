@@ -46,6 +46,15 @@ html, body {
     overflow: hidden;
 }
 
+@keyframes AppEnter {
+    from { opacity: 0; transform: translateY(14px) scale(0.99); }
+    to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+.AppEnter {
+    animation: AppEnter 0.45s var(--spring) both;
+}
+
 :root {
     --bg: #131115;
     --surf: #1B1720;
@@ -67,6 +76,8 @@ html, body {
     --ty: #CBC0E0;
     --cmt: #47405A;
     --op: #8A7E96;
+    --editor-font-size:   11.5px;
+    --editor-line-height: 1.78;
     --spring: cubic-bezier(.22, 1.85, .36, 1);
     --smooth-out: cubic-bezier(.22, 1, .36, 1);
     --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);

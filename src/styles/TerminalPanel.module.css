@@ -61,6 +61,27 @@
     transform: translateY(-1px);
 }
 
+.TabBtn {
+    padding: 3px 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--txt3);
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    border-radius: 5px;
+    font-family: inherit;
+    transition: color var(--tf), background var(--tf);
+    letter-spacing: 0.02em;
+}
+
+.TabBtn:hover { color: var(--txt2); background: rgba(255,255,255,0.04); }
+
+.TabBtnActive {
+    color: var(--acc) !important;
+    background: rgba(212,176,204,0.07) !important;
+}
+
 .Toggle {
     margin-left: auto;
     width: 22px;

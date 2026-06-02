@@ -1,9 +1,12 @@
-import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from "react";
 import styles from "../styles/EditorArea.module.css";
-import { Tokenize, DetectLanguage } from "../services/Tokenizer";
+import { DetectLanguage, type Token } from "../services/Tokenizer";
 import { HighlightOverlay } from "./HighlightOverlay";
 import { SearchBar } from "./SearchBar";
 import { UILib, UsePanel } from "../ui/UILib";
+
+const OVERSCAN        = 80;
+const FUZZY_THRESHOLD = 3_000;
 
 const LangComment: Record<string, string> = {
     luau:       '--',
@@ -12,15 +15,26 @@ const LangComment: Record<string, string> = {
     rust:       '//',
     css:        '//',
     json:       '//',
+    python:     '#',
+    toml:       '#',
+    yaml:       '#',
+    bash:       '#',
+    wgsl:       '//',
+    glsl:       '//',
+    c:          '//',
+    cpp:        '//',
+    go:         '//',
+    csharp:     '//',
+    java:       '//',
+    sql:        '--',
 };
 
 const LangClosers: Record<string, string[]> = {
     luau:       ['end', 'until'],
-    typescript: [],
-    javascript: [],
-    rust:       [],
-    css:        [],
-    json:       [],
+    typescript: [], javascript: [], rust:     [], css:      [], json:     [],
+    python:     [], toml:        [], yaml:    [], bash:     [], wgsl:     [],
+    glsl:       [], c:           [], cpp:     [], go:       [], csharp:   [],
+    java:       [], sql:         [], markdown:[], xml:      [], html:     [],
 };
 
 const AutoClosePairs: Record<string, string> = {
@@ -53,6 +67,27 @@ function Levenshtein(A: string, B: string): number {
     return Row[N];
 }
 
+// Binary search: find the 0-based line index containing character offset Pos.
+function LineFromOffset(Offsets: Int32Array, Pos: number): number {
+    let Lo = 0, Hi = Offsets.length - 2;
+    while (Lo < Hi) {
+        const Mid = (Lo + Hi + 1) >> 1;
+        if (Offsets[Mid] <= Pos) Lo = Mid;
+        else Hi = Mid - 1;
+    }
+    return Lo;
+}
+
+function ComputeLH(): number {
+    const Style = document.documentElement.style;
+    return (parseFloat(Style.getPropertyValue("--editor-font-size"))   || 11.5) *
+           (parseFloat(Style.getPropertyValue("--editor-line-height")) || 1.78);
+}
+
+function VisibleLineEnd(Line: string): number {
+    return Line.trimEnd().length;
+}
+
 interface TabEntry {
     Path: string;
     Name: string;
@@ -62,18 +97,20 @@ interface TabEntry {
 }
 
 interface EditorAreaProps {
-    FileContent:      string;
-    FileName:         string;
-    OnContentChange:  (Content: string) => void;
-    OnCursorChange?:  (Line: number, Col: number) => void;
-    OpenTabs?:        TabEntry[];
-    ActiveFile?:      string | null;
-    OnTabClose?:      (Path: string) => void;
-    OnTabSelect?:     (Path: string) => void;
-    OnSaveFile?:      (Path: string) => void;
-    SwitchDir?:       "up" | "down" | "none";
-    ShowSavedFlash?:  boolean;
-    ViewportContent?: React.ReactNode;
+    FileContent:          string;
+    FileName:             string;
+    OnContentChange:      (Content: string) => void;
+    OnCursorChange?:      (Line: number, Col: number) => void;
+    OpenTabs?:            TabEntry[];
+    ActiveFile?:          string | null;
+    OnTabClose?:          (Path: string) => void;
+    OnTabSelect?:         (Path: string) => void;
+    OnSaveFile?:          (Path: string) => void;
+    SwitchDir?:           "up" | "down" | "none";
+    ShowSavedFlash?:      boolean;
+    ViewportContent?:     React.ReactNode;
+    ActiveFileModified?:  boolean;
+    ExternalContentVersion?: number;
 }
 
 export const EditorArea: React.FC<EditorAreaProps> = ({
@@ -89,6 +126,8 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     SwitchDir = "none",
     ShowSavedFlash = false,
     ViewportContent,
+    ActiveFileModified,
+    ExternalContentVersion,
 }) => {
     const IsSearchOpen = UsePanel("Search");
     const [SearchTerm, SetSearchTerm] = useState("");
@@ -98,19 +137,55 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     const [TabDir, SetTabDir] = useState<"left" | "right" | "none">("none");
     const [CurrentMatchIndex, SetCurrentMatchIndex] = useState(0);
     const [ClosingTabs, SetClosingTabs] = useState<Set<string>>(new Set());
-    const [IsScrolling, SetIsScrolling] = useState(false);
-    const TextAreaRef = useRef<HTMLTextAreaElement>(null);
-    const LineNumbersRef = useRef<HTMLDivElement>(null);
-    const OverlayRef = useRef<HTMLDivElement>(null);
-    const SearchOverlayRef = useRef<HTMLDivElement>(null);
-    const TabsContainerRef = useRef<HTMLDivElement>(null);
-    const PrevTabIndexRef = useRef<number>(-1);
-    const ScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const PendingCursorRef = useRef<{ Start: number; End: number } | null>(null);
+    const TextAreaRef       = useRef<HTMLTextAreaElement>(null);
+    const LineNumbersRef    = useRef<HTMLDivElement>(null);
+    const OverlayRef        = useRef<HTMLDivElement>(null);
+    const SearchOverlayRef  = useRef<HTMLDivElement>(null);
+    const EditorWrapperRef  = useRef<HTMLDivElement>(null);
+    const TabsContainerRef  = useRef<HTMLDivElement>(null);
+    const PrevTabIndexRef   = useRef<number>(-1);
+    const PendingCursorRef  = useRef<{ Start: number; End: number } | null>(null);
+    const [ScrollTopPx, SetScrollTopPx] = useState(0);
+    const RafRef            = useRef<number | null>(null);
+    const LineOffsetsRef    = useRef(new Int32Array(1));
+    const ScrollTopPxRef    = useRef(0);
+    const ActualScrollTopRef = useRef(0);
+    const WorkerRef         = useRef<Worker | null>(null);
+    const WorkerVersionRef  = useRef(0);
+    const LhRef             = useRef(ComputeLH());
+    const FileContentRef    = useRef(FileContent);
+    const CursorLineRef     = useRef(1);
 
-    const Lines = useMemo(() => FileContent.split("\n"), [FileContent]);
+    const Lines    = useMemo(() => FileContent.split("\n"), [FileContent]);
     const Language = useMemo(() => DetectLanguage(FileName), [FileName]);
-    const Tokens = useMemo(() => Tokenize(FileContent, Language), [FileContent, Language]);
+    FileContentRef.current = FileContent;
+
+    // Cached line height — updated by MutationObserver when settings change, not on every render
+    const [LH, SetLH] = useState(ComputeLH);
+    LhRef.current = LH;
+    CursorLineRef.current = CursorLine;
+    const ViewH    = TextAreaRef.current?.clientHeight ?? 600;
+    const VisStart = Math.max(0, Math.floor((ScrollTopPx - 14) / LH) - OVERSCAN);
+    const VisEnd   = Math.max(VisStart, Math.min(Lines.length, Math.ceil((ScrollTopPx - 14 + ViewH) / LH) + OVERSCAN + 1));
+
+    // Cumulative character offsets — O(n) once per file change, O(1) per scroll via binary search
+    const LineOffsets = useMemo(() => {
+        const O = new Int32Array(Lines.length + 1);
+        for (let i = 0; i < Lines.length; i++) O[i + 1] = O[i] + Lines[i].length + 1;
+        return O;
+    }, [Lines]);
+
+    // Always-current ref so stable callbacks can read offsets without deps
+    LineOffsetsRef.current = LineOffsets;
+
+    const PreChars    = LineOffsets[VisStart] ?? 0;
+    const VisEndChars = LineOffsets[Math.min(VisEnd, Lines.length)] ?? FileContent.length;
+
+    // Only tokenise the visible window
+    const VisText                   = useMemo(() => FileContent.slice(PreChars, VisEndChars), [FileContent, PreChars, VisEndChars]);
+    const [VisTokens, SetVisTokens] = useState<Token[]>([]);
+
+    const TotalHeight = Math.max(0, Lines.length * LH + 28);
 
     const Matches = useMemo((): SearchMatchEntry[] => {
         if (!SearchTerm || SearchTerm.length < 1) return [];
@@ -129,7 +204,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             Idx = Found + TLen;
         }
 
-        if (TLen >= 3) {
+        if (TLen >= 3 && Lines.length < FUZZY_THRESHOLD) {
             const Threshold = Math.min(2, TLen <= 7 ? 1 : 2);
             const SeenWords = new Set<string>();
             const WordRx = /[a-zA-Z_][a-zA-Z0-9_]*/g;
@@ -164,11 +239,13 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             }
         }
         return Deduped;
-    }, [FileContent, SearchTerm]);
+    }, [FileContent, SearchTerm, Lines.length]);
 
-    const MatchLineNumbers = useMemo(() =>
-        Matches.map(M => FileContent.slice(0, M.Start).split('\n').length)
-    , [Matches, FileContent]);
+    // O(matches * log n) instead of O(matches * n)
+    const MatchLineNumbers = useMemo(() => {
+        const Offsets = LineOffsets;
+        return Matches.map(M => LineFromOffset(Offsets, M.Start) + 1);
+    }, [Matches, LineOffsets]);
 
     const SearchHighlights = useMemo((): React.ReactNode => {
         if (!SearchTerm || Matches.length === 0) return null;
@@ -194,20 +271,40 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         return Parts;
     }, [FileContent, SearchTerm, Matches, CurrentMatchIndex]);
 
+    const SyncScrollPanels = useCallback((Top: number, Left?: number) => {
+        ScrollTopPxRef.current = Top;
+        ActualScrollTopRef.current = Top;
+        SetScrollTopPx(Top);
+        if (EditorWrapperRef.current) {
+            EditorWrapperRef.current.style.setProperty("--cursor-top", `${14 + (CursorLineRef.current - 1) * LhRef.current - Top}px`);
+        }
+        if (LineNumbersRef.current)   LineNumbersRef.current.scrollTop = Top;
+        if (OverlayRef.current)       OverlayRef.current.scrollTop = Top;
+        if (SearchOverlayRef.current) SearchOverlayRef.current.scrollTop = Top;
+        if (Left !== undefined) {
+            if (OverlayRef.current)       OverlayRef.current.scrollLeft = Left;
+            if (SearchOverlayRef.current) SearchOverlayRef.current.scrollLeft = Left;
+        }
+    }, []);
+
+    const ScrollToOffset = useCallback((Start: number) => {
+        const Textarea = TextAreaRef.current;
+        if (!Textarea) return;
+        const LinesBefore = LineFromOffset(LineOffsetsRef.current, Start);
+        const ScrollTo = Math.max(0, LinesBefore * LhRef.current - Textarea.clientHeight / 3);
+        Textarea.scrollTop = ScrollTo;
+        SyncScrollPanels(ScrollTo, Textarea.scrollLeft);
+    }, [SyncScrollPanels]);
+
     const JumpToMatch = useCallback((Idx: number) => {
         if (Matches.length === 0 || !TextAreaRef.current) return;
         SetCurrentMatchIndex(Idx);
         const { Start, Len } = Matches[Idx];
-        const LH = 1.78 * 11.5;
-        const LinesBefore = FileContent.slice(0, Start).split('\n').length - 1;
-        const ScrollTo = Math.max(0, LinesBefore * LH - TextAreaRef.current.clientHeight / 3);
-        TextAreaRef.current.scrollTop = ScrollTo;
-        if (LineNumbersRef.current)   LineNumbersRef.current.scrollTop = ScrollTo;
-        if (OverlayRef.current)       OverlayRef.current.scrollTop = ScrollTo;
-        if (SearchOverlayRef.current) SearchOverlayRef.current.scrollTop = ScrollTo;
+        ScrollToOffset(Start);
         TextAreaRef.current.focus();
         TextAreaRef.current.setSelectionRange(Start, Start + Len);
-    }, [Matches, FileContent]);
+        UpdateCursorFromTextarea(TextAreaRef.current);
+    }, [Matches, ScrollToOffset]);
 
     const HandleSearchNext = useCallback(() => {
         if (Matches.length === 0) return;
@@ -229,21 +326,25 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         SetCurrentMatchIndex(0);
         if (!IsSearchOpen || Matches.length === 0 || !SearchTerm || !TextAreaRef.current) return;
         const { Start, Len } = Matches[0];
-        const LH = 1.78 * 11.5;
-        const LinesBefore = FileContent.slice(0, Start).split('\n').length - 1;
-        const ScrollTo = Math.max(0, LinesBefore * LH - TextAreaRef.current.clientHeight / 3);
-        TextAreaRef.current.scrollTop = ScrollTo;
-        if (LineNumbersRef.current)   LineNumbersRef.current.scrollTop = ScrollTo;
-        if (OverlayRef.current)       OverlayRef.current.scrollTop = ScrollTo;
-        if (SearchOverlayRef.current) SearchOverlayRef.current.scrollTop = ScrollTo;
+        ScrollToOffset(Start);
         TextAreaRef.current.setSelectionRange(Start, Start + Len);
-    }, [Matches]);
+        UpdateCursorFromTextarea(TextAreaRef.current);
+    }, [Matches, IsSearchOpen, SearchTerm, ScrollToOffset]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
+        CursorLineRef.current = 1;
+        ScrollTopPxRef.current = 0;
+        ActualScrollTopRef.current = 0;
         SetCursorLine(1);
         SetCursorCol(1);
+        SetScrollTopPx(0);
+        if (TextAreaRef.current) {
+            TextAreaRef.current.scrollTop = 0;
+            TextAreaRef.current.scrollLeft = 0;
+        }
+        SyncScrollPanels(0, 0);
         if (OnCursorChange) OnCursorChange(1, 1);
-    }, [ActiveFile]);
+    }, [ActiveFile, OnCursorChange, SyncScrollPanels]);
 
     useEffect(() => {
         const NewIndex = OpenTabs.findIndex(T => T.Path === ActiveFile);
@@ -257,36 +358,67 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         PrevTabIndexRef.current = NewIndex;
     }, [ActiveFile, OpenTabs]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (PendingCursorRef.current !== null && TextAreaRef.current) {
             const { Start, End } = PendingCursorRef.current;
             PendingCursorRef.current = null;
             TextAreaRef.current.selectionStart = Start;
             TextAreaRef.current.selectionEnd = End;
+            UpdateCursorFromTextarea(TextAreaRef.current);
         }
     });
+
+    // Push externally-reloaded content into the uncontrolled textarea
+    useLayoutEffect(() => {
+        if (ExternalContentVersion !== undefined && TextAreaRef.current) {
+            TextAreaRef.current.value = FileContent;
+        }
+    }, [ExternalContentVersion]);
+
+    // Cursor position via O(log n) binary search on LineOffsets
+    function UpdateCursorFromTextarea(Textarea: HTMLTextAreaElement) {
+        const Pos     = Textarea.selectionDirection === "backward"
+            ? Textarea.selectionStart
+            : Textarea.selectionEnd;
+        let LineNum: number;
+        let ColNum: number;
+        if (Textarea.value === FileContentRef.current) {
+            const LineIdx = LineFromOffset(LineOffsetsRef.current, Pos);
+            LineNum = LineIdx + 1;
+            ColNum  = Pos - (LineOffsetsRef.current[LineIdx] ?? 0) + 1;
+        } else {
+            const Before = Textarea.value.slice(0, Pos);
+            const LastNewline = Before.lastIndexOf("\n");
+            LineNum = Before.split("\n").length;
+            ColNum  = LastNewline === -1 ? Pos + 1 : Pos - LastNewline;
+        }
+        CursorLineRef.current = LineNum;
+        if (EditorWrapperRef.current) {
+            EditorWrapperRef.current.style.setProperty("--cursor-top", `${14 + (LineNum - 1) * LhRef.current - ActualScrollTopRef.current}px`);
+        }
+        SetCursorLine(LineNum);
+        SetCursorCol(ColNum);
+        if (OnCursorChange) OnCursorChange(LineNum, ColNum);
+    }
 
     const UpdateCursor = useCallback(() => {
         const Textarea = TextAreaRef.current;
         if (!Textarea) return;
-        const Pos = Textarea.selectionStart;
-        const Text = Textarea.value;
-        const Before = Text.substring(0, Pos);
-        const LineNum = Before.split("\n").length;
-        const LastNewline = Before.lastIndexOf("\n");
-        const ColNum = LastNewline === -1 ? Pos + 1 : Pos - LastNewline;
-        SetCursorLine(LineNum);
-        SetCursorCol(ColNum);
-        if (OnCursorChange) OnCursorChange(LineNum, ColNum);
+        UpdateCursorFromTextarea(Textarea);
     }, [OnCursorChange]);
+
+    const HandleTextAreaChange = useCallback((E: React.ChangeEvent<HTMLTextAreaElement>) => {
+        OnContentChange(E.target.value);
+        UpdateCursorFromTextarea(E.target);
+    }, [OnContentChange, OnCursorChange]);
 
     const HandleKeyDown = useCallback((E: React.KeyboardEvent<HTMLTextAreaElement>) => {
         const Textarea = TextAreaRef.current;
         if (!Textarea) { UpdateCursor(); return; }
 
-        const Text = Textarea.value;
+        const Text  = Textarea.value;
         const Start = Textarea.selectionStart;
-        const End = Textarea.selectionEnd;
+        const End   = Textarea.selectionEnd;
 
         if (E.key === 'Escape' && IsSearchOpen) {
             HandleSearchClose();
@@ -306,6 +438,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             ) {
                 E.preventDefault();
                 const NewText = Text.slice(0, Start - 1) + Text.slice(Start + 1);
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = { Start: Start - 1, End: Start - 1 };
                 return;
@@ -318,6 +451,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             if (BeforeCursor.length > 0 && /^ +$/.test(BeforeCursor) && BeforeCursor.length % 4 === 0) {
                 E.preventDefault();
                 const NewText = Text.slice(0, Start - 4) + Text.slice(Start);
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = { Start: Start - 4, End: Start - 4 };
                 return;
@@ -332,6 +466,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 const NewIndent = BeforeCursor.slice(0, BeforeCursor.length - 4);
                 const NewText = Text.slice(0, LineStart) + NewIndent + E.key + Text.slice(Start);
                 const NewPos = LineStart + NewIndent.length + 1;
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = { Start: NewPos, End: NewPos };
                 return;
@@ -359,6 +494,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                     const NewIndent = ' '.repeat(LeadingSpaces - 4);
                     const NewText = Text.slice(0, LineStart) + NewIndent + Trimmed + Text.slice(Start);
                     const NewPos = LineStart + NewIndent.length + Trimmed.length;
+                    Textarea.value = NewText;
                     OnContentChange(NewText);
                     PendingCursorRef.current = { Start: NewPos, End: NewPos };
                     return;
@@ -383,6 +519,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                     E.preventDefault();
                     const Selected = Text.slice(Start, End);
                     const NewText = Text.slice(0, Start) + E.key + Selected + Closer + Text.slice(End);
+                    Textarea.value = NewText;
                     OnContentChange(NewText);
                     PendingCursorRef.current = { Start: Start + 1, End: End + 1 };
                     return;
@@ -390,6 +527,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
 
                 E.preventDefault();
                 const NewText = Text.slice(0, Start) + E.key + Closer + Text.slice(End);
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = { Start: Start + 1, End: Start + 1 };
                 return;
@@ -435,6 +573,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             });
 
             const NewText = Text.slice(0, FirstLineStart) + NewLines.join('\n') + Text.slice(BlockEnd);
+            Textarea.value = NewText;
             OnContentChange(NewText);
             if (Start === End) {
                 const P = Math.max(FirstLineStart, Start + Delta0);
@@ -463,11 +602,13 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                     NewText = Text.slice(0, LineEnd + 1) + Line + '\n' + Text.slice(LineEnd + 1);
                     NewPos = LineEnd + 1 + (Start - LineStart);
                 }
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = { Start: NewPos, End: NewPos };
             } else {
                 const Selected = Text.slice(Start, End);
                 const NewText = Text.slice(0, End) + Selected + Text.slice(End);
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = { Start: End, End: End + Selected.length };
             }
@@ -489,6 +630,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 const PrevLine = Text.slice(PrevLineStart, PrevLineEnd);
                 const NewText = Text.slice(0, PrevLineStart) + Block + '\n' + PrevLine + Text.slice(BlockEnd);
                 const Shift = -(PrevLine.length + 1);
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = { Start: Start + Shift, End: End + Shift };
             } else {
@@ -499,6 +641,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 const ActualNextEnd = NextLineEnd === -1 ? Text.length : NextLineEnd;
                 const NewText = Text.slice(0, FirstLineStart) + NextLine + '\n' + Block + Text.slice(ActualNextEnd);
                 const Shift = NextLine.length + 1;
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = { Start: Start + Shift, End: End + Shift };
             }
@@ -513,15 +656,16 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 const LastLineEnd = Text.indexOf('\n', End);
                 const BlockEnd = LastLineEnd === -1 ? Text.length : LastLineEnd;
                 const Block = Text.slice(FirstLineStart, BlockEnd);
-                const Lines = Block.split('\n');
+                const BlockLines = Block.split('\n');
                 let RemovedFirst = 0;
-                const Dedented = Lines.map((L, I) => {
+                const Dedented = BlockLines.map((L, I) => {
                     const Remove = Math.min(4, L.length - L.trimStart().length);
                     if (I === 0) RemovedFirst = Remove;
                     return L.slice(Remove);
                 }).join('\n');
                 const NewText = Text.slice(0, FirstLineStart) + Dedented + Text.slice(BlockEnd);
                 const Removed = Block.length - Dedented.length;
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = {
                     Start: Math.max(FirstLineStart, Start - RemovedFirst),
@@ -529,6 +673,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 };
             } else if (Start === End) {
                 const NewText = Text.slice(0, Start) + '    ' + Text.slice(End);
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = { Start: Start + 4, End: Start + 4 };
             } else {
@@ -536,10 +681,11 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 const LastLineEnd = Text.indexOf('\n', End - 1);
                 const BlockEnd = LastLineEnd === -1 ? Text.length : LastLineEnd;
                 const Block = Text.slice(FirstLineStart, BlockEnd);
-                const Lines = Block.split('\n');
-                const Indented = Lines.map(L => '    ' + L).join('\n');
+                const BlockLines = Block.split('\n');
+                const Indented = BlockLines.map(L => '    ' + L).join('\n');
                 const NewText = Text.slice(0, FirstLineStart) + Indented + Text.slice(BlockEnd);
-                const Added = Lines.length * 4;
+                const Added = BlockLines.length * 4;
+                Textarea.value = NewText;
                 OnContentChange(NewText);
                 PendingCursorRef.current = { Start: Start + 4, End: End + Added };
             }
@@ -575,6 +721,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 NewPos = Start + 1 + NewIndent.length;
             }
 
+            Textarea.value = NewText;
             OnContentChange(NewText);
             PendingCursorRef.current = { Start: NewPos, End: NewPos };
             return;
@@ -584,31 +731,118 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     }, [UpdateCursor, OnContentChange, Language, IsSearchOpen, HandleSearchClose]);
 
     const HandleMouseUp = useCallback(() => {
+        const Textarea = TextAreaRef.current;
+        if (Textarea) UpdateCursorFromTextarea(Textarea);
+    }, [OnCursorChange]);
+
+    const HandleTextAreaMouseDown = useCallback(() => {
+        // Let browser handle clicks natively
+    }, []);
+
+    const HandleTextAreaMouseMove = useCallback(() => {
+        // Let browser handle drag natively
+    }, []);
+
+    const HandleLineNumberClick = useCallback((LineIndex: number) => {
+        const Textarea = TextAreaRef.current;
+        if (!Textarea) return;
+        const LineStart = LineOffsetsRef.current[LineIndex] ?? 0;
+        const LineEnd   = LineStart + VisibleLineEnd(Lines[LineIndex] ?? "");
+        Textarea.focus();
+        Textarea.setSelectionRange(LineEnd, LineEnd);
         UpdateCursor();
-    }, [UpdateCursor]);
+    }, [Lines, UpdateCursor]);
 
     const HandleFocus = useCallback(() => SetIsFocused(true), []);
-    const HandleBlur = useCallback(() => SetIsFocused(false), []);
+    const HandleBlur  = useCallback(() => SetIsFocused(false), []);
 
     const HandleTextAreaScroll = useCallback(() => {
         const Textarea = TextAreaRef.current;
-        const LineNumbers = LineNumbersRef.current;
-        const Overlay = OverlayRef.current;
-        if (Textarea && LineNumbers) {
-            LineNumbers.scrollTop = Textarea.scrollTop;
+        if (!Textarea) return;
+
+        const NewScrollTop = Textarea.scrollTop;
+        ActualScrollTopRef.current = NewScrollTop;
+
+        if (LineNumbersRef.current) {
+            LineNumbersRef.current.scrollTop = NewScrollTop;
         }
-        if (Textarea && Overlay) {
-            Overlay.scrollTop = Textarea.scrollTop;
-            Overlay.scrollLeft = Textarea.scrollLeft;
+        if (OverlayRef.current) {
+            OverlayRef.current.scrollTop  = NewScrollTop;
+            OverlayRef.current.scrollLeft = Textarea.scrollLeft;
         }
-        if (Textarea && SearchOverlayRef.current) {
-            SearchOverlayRef.current.scrollTop = Textarea.scrollTop;
+        if (SearchOverlayRef.current) {
+            SearchOverlayRef.current.scrollTop  = NewScrollTop;
             SearchOverlayRef.current.scrollLeft = Textarea.scrollLeft;
         }
-        SetIsScrolling(true);
-        if (ScrollTimerRef.current) clearTimeout(ScrollTimerRef.current);
-        ScrollTimerRef.current = setTimeout(() => SetIsScrolling(false), 400);
+
+        // Update cursor position CSS
+        if (EditorWrapperRef.current && LhRef.current > 0) {
+            EditorWrapperRef.current.style.setProperty("--cursor-top", `${14 + (CursorLineRef.current - 1) * LhRef.current - NewScrollTop}px`);
+        }
+
+        // Check if we need to shift the virtual window
+        if (LhRef.current > 0) {
+            const OldLine = Math.floor((ScrollTopPxRef.current - 14) / LhRef.current);
+            const NewLine = Math.floor((NewScrollTop - 14) / LhRef.current);
+
+            // Only update state when visible lines change - this batches overlay syncing
+            if (NewLine !== OldLine) {
+                ScrollTopPxRef.current = NewScrollTop;
+                SetScrollTopPx(NewScrollTop);
+            }
+        }
     }, []);
+
+    // Cleanup RAF and timers on unmount to avoid stale callbacks
+    useEffect(() => {
+        return () => {
+            if (RafRef.current !== null) {
+                try { cancelAnimationFrame(RafRef.current); } catch (e) {}
+                RafRef.current = null;
+            }
+        };
+    }, []);
+
+    // Sync overlays when virtual window changes
+    useEffect(() => {
+        if (LineNumbersRef.current) {
+            LineNumbersRef.current.scrollTop = ScrollTopPx;
+        }
+        if (OverlayRef.current) {
+            OverlayRef.current.scrollTop = ScrollTopPx;
+        }
+        if (SearchOverlayRef.current) {
+            SearchOverlayRef.current.scrollTop = ScrollTopPx;
+        }
+    }, [ScrollTopPx]);
+
+    // Recompute LH when font-size or line-height settings change (style attr on <html>)
+    useEffect(() => {
+        const Observer = new MutationObserver(() => SetLH(ComputeLH()));
+        Observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+        return () => Observer.disconnect();
+    }, []);
+
+    // Worker lifecycle — create once, terminate on unmount
+    useEffect(() => {
+        const W = new Worker(new URL('../services/Tokenizer.worker.ts', import.meta.url), { type: 'module' });
+        WorkerRef.current = W;
+        W.onmessage = (E: MessageEvent<{ Version: number; Tokens: Token[] }>) => {
+            if (E.data.Version !== WorkerVersionRef.current) return;
+            SetVisTokens(E.data.Tokens);
+        };
+        return () => {
+            W.terminate();
+            WorkerRef.current = null;
+        };
+    }, []);
+
+    // Dispatch tokenisation to worker whenever the visible text or language changes
+    useEffect(() => {
+        if (!WorkerRef.current) return;
+        WorkerVersionRef.current++;
+        WorkerRef.current.postMessage({ Version: WorkerVersionRef.current, Text: VisText, Lang: Language });
+    }, [VisText, Language]);
 
     useEffect(() => {
         if (TextAreaRef.current) TextAreaRef.current.focus();
@@ -636,6 +870,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         });
         OnTabClose?.(Path);
     }, [OnTabClose]);
+
     const EditorAnimClass = (() => {
         if (SwitchDir === "down") return styles.SlideFromBelow;
         if (SwitchDir === "up") return styles.SlideFromAbove;
@@ -651,7 +886,11 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             <div className={styles.Tabs} ref={TabsContainerRef}>
                 {OpenTabs.map((Tab) => {
                     const IsClosing = ClosingTabs.has(Tab.Path);
-                    const IsModified = Tab.Type !== 'viewport' && Tab.Content !== Tab.DiskContent;
+                    const IsModified = Tab.Type !== 'viewport' && (
+                        Tab.Path === ActiveFile
+                            ? (ActiveFileModified ?? Tab.Content !== Tab.DiskContent)
+                            : Tab.Content !== Tab.DiskContent
+                    );
                     const IsViewport = Tab.Type === 'viewport';
                     return (
                         <div
@@ -699,42 +938,60 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                             OnClose={HandleSearchClose}
                         />
                     )}
-                    <div className={`${styles.EditorWrapper} ${EditorAnimClass}`} key={ActiveFile ?? "empty"}>
+                    <div
+                        className={`${styles.EditorWrapper} ${EditorAnimClass}`}
+                        ref={EditorWrapperRef}
+                        key={ActiveFile ?? "empty"}
+                        style={{
+                            '--cursor-line': CursorLine - 1,
+                            '--cursor-top': `${14 + (CursorLineRef.current - 1) * LhRef.current - ActualScrollTopRef.current}px`,
+                            '--cursor-height': `${LH}px`,
+                        } as React.CSSProperties}
+                    >
+                        <div className={styles.CurrentLineHighlight} />
                         <div className={styles.LineNumbers} ref={LineNumbersRef}>
-                            {Lines.map((_, I) => (
+                            <div style={{ height: `${VisStart * LH}px` }} aria-hidden />
+                            {Lines.slice(VisStart, VisEnd).map((_, I) => (
                                 <div
-                                    key={I}
-                                    className={`${styles.LineNum} ${I + 1 === CursorLine ? styles.ActiveLine : ""}`}
+                                    key={VisStart + I}
+                                    className={`${styles.LineNum} ${VisStart + I + 1 === CursorLine ? styles.ActiveLine : ""}`}
+                                    onClick={() => HandleLineNumberClick(VisStart + I)}
                                 >
-                                    {I + 1}
+                                    {VisStart + I + 1}
                                 </div>
                             ))}
+                            <div style={{ height: `${(Lines.length - VisEnd) * LH}px` }} aria-hidden />
                         </div>
                         <div className={styles.CodeArea}>
-                            {SearchHighlights && (
+                            <HighlightOverlay
+                                Tokens={VisTokens}
+                                ClassName={styles.Overlay}
+                                ScrollRef={OverlayRef}
+                                TotalHeight={TotalHeight}
+                                VisStart={VisStart}
+                                LH={LH}
+                            />
+                            <textarea
+                                ref={TextAreaRef}
+                                className={styles.TextArea}
+                                defaultValue={FileContent}
+                                onChange={HandleTextAreaChange}
+                                onKeyDown={HandleKeyDown}
+                                onMouseDown={HandleTextAreaMouseDown}
+                                onMouseMove={HandleTextAreaMouseMove}
+                                onMouseUp={HandleMouseUp}
+                                onFocus={HandleFocus}
+                                onBlur={HandleBlur}
+                                onScroll={HandleTextAreaScroll}
+                                spellCheck={false}
+                            />
+                            {IsSearchOpen && SearchHighlights && (
                                 <div className={styles.SearchOverlay} ref={SearchOverlayRef} aria-hidden>
                                     {SearchHighlights}
                                 </div>
                             )}
-                            <HighlightOverlay
-                                Tokens={Tokens}
-                                ClassName={styles.Overlay}
-                                ScrollRef={OverlayRef}
-                            />
-                            <textarea
-                            ref={TextAreaRef}
-                            className={`${styles.TextArea} ${IsScrolling ? styles.Scrolling : ""}`}
-                            value={FileContent}
-                            onChange={(E) => OnContentChange(E.target.value)}
-                            onKeyDown={HandleKeyDown}
-                            onMouseUp={HandleMouseUp}
-                            onFocus={HandleFocus}
-                            onBlur={HandleBlur}
-                            onScroll={HandleTextAreaScroll}
-                            spellCheck={false}
-                        />
                         </div>
-                        {IsSearchOpen && MatchLineNumbers.length > 0 && (
+                            {IsSearchOpen && MatchLineNumbers.length > 0 && (
                             <div className={styles.SearchScrollTrack}>
                                 {MatchLineNumbers.map((Line, I) => (
                                     <div

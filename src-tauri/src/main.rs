@@ -10,6 +10,7 @@ mod commands;
 mod renderer;
 
 use renderer::NyxRenderer;
+use commands::agent::ApprovalState;
 
 fn main() {
     tauri::Builder::default()
@@ -34,6 +35,8 @@ fn main() {
                 Err(e) => { eprintln!("NyxRenderer::new failed: {e}"); }
             }
 
+            app.manage(Arc::new(Mutex::new(ApprovalState::default())));
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -47,10 +50,12 @@ fn main() {
             commands::capture_command,
             commands::run_file,
             commands::run_scene,
+            commands::run_live_scene,
             commands::delete_path,
             commands::rename_path,
             commands::create_folder,
             commands::renderer_load_scene,
+            commands::renderer_load_live_scene,
             commands::renderer_set_bounds,
             commands::renderer_set_visible,
             commands::renderer_detach,
@@ -75,6 +80,12 @@ fn main() {
             commands::renderer_frame_selected,
             commands::renderer_end_drag,
             commands::get_system_stats,
+            commands::ai_get_config,
+            commands::ai_start_agent,
+            commands::ai_tool_respond,
+            commands::ai_launch_keyman,
+            commands::get_app_settings,
+            commands::save_app_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

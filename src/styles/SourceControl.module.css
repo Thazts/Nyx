@@ -1,0 +1,340 @@
+.Backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.38);
+    z-index: 50;
+    animation: BdIn 0.18s ease both;
+}
+
+@keyframes BdIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.Panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 340px;
+    background: var(--bg);
+    border-left: 1px solid var(--brd);
+    z-index: 51;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: SlideIn 0.32s var(--spring) both;
+}
+
+@keyframes SlideIn {
+    from { transform: translateX(100%); }
+    to   { transform: translateX(0); }
+}
+
+.Header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--brd);
+    flex-shrink: 0;
+}
+
+.HeaderLeft {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.Title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--txt3);
+}
+
+.Branch {
+    font-size: 11px;
+    color: var(--acc);
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--acc08);
+    padding: 2px 7px;
+    border-radius: 10px;
+}
+
+.HeaderActions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.IconBtn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color var(--tf), background var(--tf), transform var(--td) var(--spring);
+}
+
+.IconBtn:hover {
+    color: var(--txt2);
+    background: rgba(255,255,255,0.06);
+}
+
+.IconBtn:active {
+    transform: scale(0.88);
+    transition-duration: var(--td-fast);
+}
+
+.Spinning {
+    animation: Spin 0.8s linear infinite;
+}
+
+@keyframes Spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+.CommitArea {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--brd);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.CommitInput {
+    width: 100%;
+    background: var(--surf2);
+    border: 1px solid var(--brd);
+    border-radius: 7px;
+    color: var(--txt);
+    font-size: 11.5px;
+    font-family: 'Syne', sans-serif;
+    padding: 8px 10px;
+    outline: none;
+    resize: none;
+    min-height: 56px;
+    transition: border-color var(--tf);
+    scrollbar-width: thin;
+}
+
+.CommitInput::placeholder {
+    color: var(--txt3);
+}
+
+.CommitInput:focus {
+    border-color: rgba(212,176,204,0.3);
+    box-shadow: 0 0 0 2px var(--acc04);
+}
+
+.CommitBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 9px 16px;
+    background: var(--acc);
+    color: var(--bg);
+    border: none;
+    border-radius: 7px;
+    font-size: 11.5px;
+    font-weight: 600;
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+    transition: transform var(--td) var(--spring), box-shadow var(--td) var(--spring), opacity var(--tf);
+}
+
+.CommitBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(212,176,204,0.28);
+}
+
+.CommitBtn:active {
+    transform: translateY(0) scale(0.97);
+    transition-duration: var(--td-fast);
+}
+
+.CommitBtn:disabled {
+    opacity: 0.35;
+    cursor: default;
+    transform: none;
+    box-shadow: none;
+}
+
+.Scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 16px;
+}
+
+.Section {
+    padding: 0;
+}
+
+.SectionHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px 6px;
+    cursor: default;
+    user-select: none;
+}
+
+.SectionTitle {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    font-weight: 700;
+}
+
+.SectionCount {
+    font-size: 9px;
+    color: var(--txt3);
+    background: rgba(255,255,255,0.05);
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.SectionActions {
+    display: flex;
+    gap: 2px;
+}
+
+.SmallBtn {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color var(--tf), background var(--tf), transform var(--td) var(--spring);
+}
+
+.SmallBtn:hover {
+    color: var(--txt2);
+    background: rgba(255,255,255,0.06);
+}
+
+.SmallBtn:active {
+    transform: scale(0.85);
+    transition-duration: var(--td-fast);
+}
+
+.FileRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 14px;
+    font-size: 11.5px;
+    color: var(--txt2);
+    transition: background var(--tf), color var(--tf);
+}
+
+.FileRow:hover {
+    background: rgba(255,255,255,0.03);
+    color: var(--txt);
+}
+
+.FileRow:hover .FileAction {
+    opacity: 1;
+}
+
+.StatusBadge {
+    font-size: 9.5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.StatusM { color: #d4a87a; }
+.StatusA { color: var(--str); }
+.StatusD { color: #c97070; }
+.StatusR { color: var(--fn); }
+.StatusQ { color: var(--txt3); }
+
+.FileName {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+}
+
+.FileDir {
+    font-size: 10px;
+    color: var(--txt3);
+    margin-left: 2px;
+}
+
+.FileAction {
+    opacity: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color var(--tf), background var(--tf), opacity var(--tf), transform var(--td) var(--spring);
+}
+
+.FileAction:hover {
+    color: var(--txt2);
+    background: rgba(255,255,255,0.08);
+}
+
+.FileAction:active {
+    transform: scale(0.85);
+    transition-duration: var(--td-fast);
+}
+
+.EmptyHint {
+    padding: 8px 14px 4px;
+    font-size: 10.5px;
+    color: var(--txt3);
+    font-style: italic;
+}
+
+.ErrorBanner {
+    margin: 10px 14px;
+    padding: 8px 10px;
+    background: rgba(201,112,112,0.1);
+    border: 1px solid rgba(201,112,112,0.2);
+    border-radius: 6px;
+    font-size: 10.5px;
+    color: #c97070;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.NoWorkspace {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11.5px;
+    color: var(--txt3);
+    padding: 24px;
+    text-align: center;
+    line-height: 1.6;
+}

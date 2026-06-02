@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { ActivityBar } from "./components/ActivityBar";
 import { Sidebar } from "./components/Sidebar";
 import { EditorArea } from "./components/EditorArea";
@@ -9,17 +9,37 @@ import { PropertiesBar } from "./components/PropertiesBar";
 import { StartScreen } from "./components/StartScreen";
 import { FileService } from "./services/FileService";
 import { EditorService } from "./services/EditorService";
+import { CaptureService } from "./services/CaptureService";
 import { RunService } from "./services/RunService";
 import { NativeCommands } from "./services/NativeCommands";
 import { StateManager } from "./state/StateManager";
 import { SceneService } from "./services/SceneService";
 import { RendererService } from "./services/RendererService";
-import { DevMenu } from "./components/DevMenu";
+import { DevMenu } from "@devtools";
+import { SourceControl } from "./components/SourceControl";
+import { SettingsPanel, InitSettings } from "./components/SettingsPanel";
+import { CommandPalette } from "./components/CommandPalette";
 import { UILib, UsePanel } from "./ui/UILib";
 import { invoke } from "@tauri-apps/api/tauri";
+import { DetectLanguage } from "./services/Tokenizer";
 import "./styles/global.css";
 
 StateManager.init();
+InitSettings();
+
+const RECENT_KEY = "nyx_recent_workspaces";
+const MAX_RECENT = 5;
+
+function GetRecentWorkspaces(): string[] {
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]"); }
+    catch { return []; }
+}
+
+function AddRecentWorkspace(Path: string): string[] {
+    const Next = [Path, ...GetRecentWorkspaces().filter(P => P !== Path)].slice(0, MAX_RECENT);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(Next));
+    return Next;
+}
 
 interface FileEntry {
     Name: string;
@@ -84,6 +104,7 @@ export const App: React.FC = () => {
     const DevMenuOpen = UsePanel("DevMenu");
     const [ActiveFile, SetActiveFile] = useState<string | null>(null);
     const [FileContent, SetFileContent] = useState(InitialCode);
+    const [ActiveTabModified, SetActiveTabModified] = useState(false);
     const [TerminalOutput, SetTerminalOutput] = useState<string[]>([
         "Welcome to Nyx",
         "Select a workspace folder to begin",
@@ -101,12 +122,21 @@ export const App: React.FC = () => {
     const [RunOutput, SetRunOutput] = useState<string[]>([]);
     const [IsRunning, SetIsRunning] = useState(false);
     const [SavedFlash, SetSavedFlash] = useState(false);
+    const [ExternalContentVersion, SetExternalContentVersion] = useState(0);
+    const [GitBranch, SetGitBranch]       = useState("—");
+    const [RecentPaths, SetRecentPaths]   = useState<string[]>(() => GetRecentWorkspaces());
+    const IsSourceControlOpen  = UsePanel("SourceControl");
+    const IsSettingsOpen       = UsePanel("Settings");
+    const IsCommandPaletteOpen = UsePanel("CommandPalette");
     const PrevActiveFileRef = useRef<string | null>(null);
     const AppRef = useRef<HTMLDivElement>(null);
     const ActiveFileRef = useRef<string | null>(null);
     const FileContentRef = useRef<string>(InitialCode);
     const DiskContentRef = useRef<string>(InitialCode);
     const LastKnownMtimeRef = useRef<string | null>(null);
+    const LiveViewportTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+    const LiveViewportTokensRef = useRef<Map<string, number>>(new Map());
+    const LastViewportInteractionRef = useRef(0);
 
     useEffect(() => {
         const PreventMenu = (E: MouseEvent) => E.preventDefault();
@@ -114,8 +144,15 @@ export const App: React.FC = () => {
         return () => document.removeEventListener('contextmenu', PreventMenu);
     }, []);
 
+    useEffect(() => {
+        return () => {
+            LiveViewportTimersRef.current.forEach(Timer => clearTimeout(Timer));
+            LiveViewportTimersRef.current.clear();
+            LiveViewportTokensRef.current.clear();
+        };
+    }, []);
+
     useEffect(() => { ActiveFileRef.current = ActiveFile; }, [ActiveFile]);
-    useEffect(() => { FileContentRef.current = FileContent; }, [FileContent]);
 
     useEffect(() => {
         const HandleKeyDown = (E: KeyboardEvent) => {
@@ -140,7 +177,11 @@ export const App: React.FC = () => {
         try {
             await FileService.SaveFile({ Path, Content });
             DiskContentRef.current = Content;
-            SetOpenTabs(Prev => Prev.map(T => T.Path === Path ? { ...T, DiskContent: Content } : T));
+            SetOpenTabs(Prev => Prev.map(T => T.Path === Path
+                ? { ...T, Content, DiskContent: Content }
+                : T
+            ));
+            SetActiveTabModified(false);
             SetSavedFlash(true);
             setTimeout(() => SetSavedFlash(false), 1200);
             const Meta = await FileService.GetFileMetadata({ Path });
@@ -152,13 +193,21 @@ export const App: React.FC = () => {
     }, []);
 
     const HandleSaveFile = useCallback(async (Path: string) => {
-        const Tab = OpenTabs.find(T => T.Path === Path);
-        if (!Tab || Tab.Content === Tab.DiskContent) return;
+        const IsActive = Path === ActiveFile;
+        const Content    = IsActive ? FileContentRef.current  : OpenTabs.find(T => T.Path === Path)?.Content;
+        const DiskContent = IsActive ? DiskContentRef.current : OpenTabs.find(T => T.Path === Path)?.DiskContent;
+        if (Content === undefined || Content === DiskContent) return;
         try {
-            await FileService.SaveFile({ Path, Content: Tab.Content });
-            SetOpenTabs(Prev => Prev.map(T => T.Path === Path ? { ...T, DiskContent: T.Content } : T));
-            if (Path === ActiveFile) {
-                DiskContentRef.current = Tab.Content;
+            await FileService.SaveFile({ Path, Content });
+            if (IsActive) {
+                DiskContentRef.current = Content;
+                SetActiveTabModified(false);
+            }
+            SetOpenTabs(Prev => Prev.map(T => T.Path === Path
+                ? { ...T, Content, DiskContent: Content }
+                : T
+            ));
+            if (IsActive) {
                 SetSavedFlash(true);
                 setTimeout(() => SetSavedFlash(false), 1200);
                 const Meta = await FileService.GetFileMetadata({ Path });
@@ -171,19 +220,28 @@ export const App: React.FC = () => {
     }, [OpenTabs, ActiveFile]);
 
     const HandleSaveAll = useCallback(async () => {
-        const Unsaved = OpenTabs.filter(T => T.Content !== T.DiskContent);
-        if (Unsaved.length === 0) return;
-        await Promise.all(Unsaved.map(Tab =>
-            FileService.SaveFile({ Path: Tab.Path, Content: Tab.Content }).catch(Err =>
-                console.error(`Save failed: ${Tab.Path}`, Err)
-            )
-        ));
-        SetOpenTabs(Prev => Prev.map(T =>
-            Unsaved.some(U => U.Path === T.Path) ? { ...T, DiskContent: T.Content } : T
-        ));
-        const ActiveUnsaved = Unsaved.find(T => T.Path === ActiveFile);
-        if (ActiveUnsaved) {
-            DiskContentRef.current = ActiveUnsaved.Content;
+        const ActiveContent = FileContentRef.current;
+        const ToSave = OpenTabs.filter(T =>
+            T.Path === ActiveFile
+                ? ActiveContent !== DiskContentRef.current
+                : T.Content !== T.DiskContent
+        );
+        if (ToSave.length === 0) return;
+        await Promise.all(ToSave.map(T => {
+            const Content = T.Path === ActiveFile ? ActiveContent : T.Content;
+            return FileService.SaveFile({ Path: T.Path, Content }).catch(Err =>
+                console.error(`Save failed: ${T.Path}`, Err)
+            );
+        }));
+        SetOpenTabs(Prev => Prev.map(T => {
+            if (T.Path === ActiveFile) return { ...T, Content: ActiveContent, DiskContent: ActiveContent };
+            const Saved = ToSave.find(S => S.Path === T.Path);
+            if (Saved) return { ...T, DiskContent: T.Content };
+            return T;
+        }));
+        if (ToSave.some(T => T.Path === ActiveFile)) {
+            DiskContentRef.current = ActiveContent;
+            SetActiveTabModified(false);
             SetSavedFlash(true);
             setTimeout(() => SetSavedFlash(false), 1200);
         }
@@ -200,6 +258,10 @@ export const App: React.FC = () => {
                 UILib.SetView("search");
                 UILib.Show("Search");
             }
+            if ((E.ctrlKey || E.metaKey) && E.key === 'p') {
+                E.preventDefault();
+                UILib.Toggle("CommandPalette");
+            }
             if (E.key === 'F12') {
                 E.preventDefault();
                 UILib.Toggle("DevMenu");
@@ -214,9 +276,13 @@ export const App: React.FC = () => {
         if (!viewportEl) return;
 
         const keysDown = new Set<string>();
+        const MarkViewportInteraction = () => {
+            LastViewportInteractionRef.current = performance.now();
+        };
 
         const onKeyDown = (e: KeyboardEvent) => {
             if (!viewportEl.contains(e.target as Node)) return;
+            MarkViewportInteraction();
             keysDown.add(e.key.toLowerCase());
             if (!keysDown.has('mouse2')) return;
             let forward = 0, right = 0, up = 0;
@@ -232,11 +298,13 @@ export const App: React.FC = () => {
         };
 
         const onKeyUp = (e: KeyboardEvent) => {
+            if (viewportEl.contains(e.target as Node)) MarkViewportInteraction();
             keysDown.delete(e.key.toLowerCase());
         };
 
         const onMouseDown = (e: MouseEvent) => {
             if (!viewportEl.contains(e.target as Node)) return;
+            MarkViewportInteraction();
             if (e.button === 2) {
                 keysDown.add('mouse2');
                 invoke('renderer_camera_right_mouse', { down: true }).catch(() => {});
@@ -245,6 +313,7 @@ export const App: React.FC = () => {
         };
 
         const onMouseUp = (e: MouseEvent) => {
+            if (viewportEl.contains(e.target as Node)) MarkViewportInteraction();
             if (e.button === 2) {
                 keysDown.delete('mouse2');
                 invoke('renderer_camera_right_mouse', { down: false }).catch(() => {});
@@ -257,11 +326,21 @@ export const App: React.FC = () => {
             }
         };
 
+        const onMouseMove = (e: MouseEvent) => {
+            if (viewportEl.contains(e.target as Node)) MarkViewportInteraction();
+        };
+
+        const onWheel = (e: WheelEvent) => {
+            if (viewportEl.contains(e.target as Node)) MarkViewportInteraction();
+        };
+
         window.addEventListener('keydown', onKeyDown);
         window.addEventListener('keyup', onKeyUp);
         window.addEventListener('mousedown', onMouseDown);
         window.addEventListener('mouseup', onMouseUp);
         window.addEventListener('contextmenu', onContextMenu);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('wheel', onWheel);
 
         return () => {
             window.removeEventListener('keydown', onKeyDown);
@@ -269,6 +348,8 @@ export const App: React.FC = () => {
             window.removeEventListener('mousedown', onMouseDown);
             window.removeEventListener('mouseup', onMouseUp);
             window.removeEventListener('contextmenu', onContextMenu);
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('wheel', onWheel);
         };
     }, [ActiveFile]);
 
@@ -285,7 +366,10 @@ export const App: React.FC = () => {
                 const Content = await FileService.OpenFile({ Path });
                 if (ActiveFileRef.current !== Path) return;
                 DiskContentRef.current = Content;
+                FileContentRef.current = Content;
                 SetFileContent(Content);
+                SetActiveTabModified(false);
+                SetExternalContentVersion(V => V + 1);
                 SetOpenTabs(Prev => Prev.map(T => T.Path === Path ? { ...T, Content, DiskContent: Content } : T));
                 SetSelectedMetadata(Meta);
             } catch {
@@ -294,9 +378,17 @@ export const App: React.FC = () => {
         const Id = setInterval(Poll, 2500);
         return () => clearInterval(Id);
     }, []);
+
     useEffect(() => {
         RendererService.SetOnTop({ OnTop: !DevMenuOpen }).catch(() => {});
     }, [DevMenuOpen]);
+
+    useEffect(() => {
+        if (!WorkspacePath) { SetGitBranch("—"); return; }
+        CaptureService.Run("git branch --show-current", WorkspacePath)
+            .then(Lines => { const B = Lines[0]?.trim(); SetGitBranch(B || "main"); })
+            .catch(() => SetGitBranch("main"));
+    }, [WorkspacePath]);
 
     const BuildFileTree = useCallback(async (RootPath: string): Promise<FileEntry[]> => {
         const Files = await FileService.ListFilesRecursive({ Path: RootPath });
@@ -348,6 +440,7 @@ export const App: React.FC = () => {
             SetIsLoading(false);
             StateManager.set("AppStatus", "idle");
             SetTerminalOutput(Prev => [...Prev, `Workspace: ${FolderPath}`]);
+            SetRecentPaths(AddRecentWorkspace(FolderPath));
             SetAppReady(true);
         } catch (Error) {
             console.error("Failed to load workspace:", Error);
@@ -369,9 +462,16 @@ export const App: React.FC = () => {
             StateManager.set("FileTree", Tree);
             SetIsLoading(false);
             StateManager.set("AppStatus", "idle");
+            SetRecentPaths(AddRecentWorkspace(FolderPath));
             SetActiveFile(null);
             StateManager.set("ActiveFile", null);
+            FileContentRef.current = InitialCode;
+            DiskContentRef.current = InitialCode;
             SetFileContent(InitialCode);
+            SetActiveTabModified(false);
+            LiveViewportTimersRef.current.forEach(Timer => clearTimeout(Timer));
+            LiveViewportTimersRef.current.clear();
+            LiveViewportTokensRef.current.clear();
             SetOpenTabs([]);
             StateManager.set("OpenTabs", []);
             const SubFolders = CollectAllFolderPaths(Tree[0]?.Children ?? []);
@@ -416,15 +516,19 @@ export const App: React.FC = () => {
 
         const ExistingTab = OpenTabs.find(T => T.Path === Path);
         if (ExistingTab) {
+            FileContentRef.current = ExistingTab.Content;
             DiskContentRef.current = ExistingTab.DiskContent;
             SetFileContent(ExistingTab.Content);
+            SetActiveTabModified(ExistingTab.Content !== ExistingTab.DiskContent);
             return;
         }
 
         try {
             const Content = await FileService.OpenFile({ Path });
             const FileName = Path.split("\\").pop()?.split("/").pop() || "untitled";
+            FileContentRef.current = Content;
             DiskContentRef.current = Content;
+            SetActiveTabModified(false);
             SetOpenTabs(Prev => {
                 const Next = [...Prev, { Path, Name: FileName, Content, DiskContent: Content }];
                 StateManager.set("OpenTabs", Next);
@@ -436,46 +540,82 @@ export const App: React.FC = () => {
         }
     }, [FileTree, OpenTabs]);
 
+    const StopLiveViewport = useCallback((ViewportPath: string) => {
+        const Timer = LiveViewportTimersRef.current.get(ViewportPath);
+        if (Timer) clearTimeout(Timer);
+        LiveViewportTimersRef.current.delete(ViewportPath);
+        LiveViewportTokensRef.current.delete(ViewportPath);
+    }, []);
+
     const HandleTabClose = useCallback((Path: string) => {
+        if (Path.startsWith("viewport:")) StopLiveViewport(Path);
+        // Sync active file content to its tab slot before any restructuring
+        const SyncedContent = FileContentRef.current;
+
         SetOpenTabs(Prev => {
-            const NewTabs = Prev.filter(T => T.Path !== Path);
+            const WithSynced = ActiveFile
+                ? Prev.map(T => T.Path === ActiveFile ? { ...T, Content: SyncedContent } : T)
+                : Prev;
+            const NewTabs = WithSynced.filter(T => T.Path !== Path);
             StateManager.set("OpenTabs", NewTabs);
+
             if (Path === ActiveFile) {
                 const LastTab = NewTabs[NewTabs.length - 1];
                 if (LastTab) {
                     SetActiveFile(LastTab.Path);
                     StateManager.set("ActiveFile", LastTab.Path);
+                    FileContentRef.current = LastTab.Content;
+                    DiskContentRef.current = LastTab.DiskContent;
                     SetFileContent(LastTab.Content);
+                    SetActiveTabModified(LastTab.Content !== LastTab.DiskContent);
                 } else {
                     SetActiveFile(null);
                     StateManager.set("ActiveFile", null);
+                    FileContentRef.current = InitialCode;
+                    DiskContentRef.current = InitialCode;
                     SetFileContent(InitialCode);
+                    SetActiveTabModified(false);
                 }
             }
             return NewTabs;
         });
-    }, [ActiveFile]);
+    }, [ActiveFile, StopLiveViewport]);
 
     const HandleTabSelect = useCallback((Path: string) => {
         const Tab = OpenTabs.find(T => T.Path === Path);
-        if (Tab) {
-            SetSwitchDir("none");
-            SetActiveFile(Path);
-            StateManager.set("ActiveFile", Path);
-            if (Tab.Type === 'viewport') {
-                SetFileContent("");
-                DiskContentRef.current = "";
-            } else {
-                SetFileContent(Tab.Content);
-                DiskContentRef.current = Tab.DiskContent;
-            }
-        }
-    }, [OpenTabs]);
+        if (!Tab) return;
 
+        // Sync outgoing tab's content before switching away
+        if (ActiveFile && ActiveFile !== Path) {
+            const Current = FileContentRef.current;
+            SetOpenTabs(Prev => Prev.map(T => T.Path === ActiveFile
+                ? { ...T, Content: Current }
+                : T
+            ));
+        }
+
+        SetSwitchDir("none");
+        SetActiveFile(Path);
+        StateManager.set("ActiveFile", Path);
+        if (Tab.Type === 'viewport') {
+            FileContentRef.current = "";
+            DiskContentRef.current = "";
+            SetFileContent("");
+            SetActiveTabModified(false);
+        } else {
+            FileContentRef.current = Tab.Content;
+            DiskContentRef.current = Tab.DiskContent;
+            SetFileContent(Tab.Content);
+            SetActiveTabModified(Tab.Content !== Tab.DiskContent);
+        }
+    }, [OpenTabs, ActiveFile]);
+
+    // No longer updates OpenTabs on every keystroke — syncs on tab switch/close instead
     const HandleContentChange = useCallback((Content: string) => {
+        FileContentRef.current = Content;
         SetFileContent(Content);
-        SetOpenTabs(Prev => Prev.map(T => T.Path === ActiveFile ? { ...T, Content } : T));
-    }, [ActiveFile]);
+        SetActiveTabModified(Content !== DiskContentRef.current);
+    }, []);
 
     const HandleTerminalCommand = useCallback(async (Command: string) => {
         if (Command.trimStart().startsWith('$')) {
@@ -488,7 +628,7 @@ export const App: React.FC = () => {
                 GetOpenFiles:         () => OpenTabs.map(T => T.Name),
                 GetActiveFilePath:    () => ActiveFile,
                 GetActiveFileName:    () => ActiveFile?.split(/[\\/]/).pop() ?? null,
-                GetActiveFileContent: () => FileContent,
+                GetActiveFileContent: () => FileContentRef.current,
                 GetWorkspacePath:     () => WorkspacePath,
                 GetOpenFileContents:  () => OpenTabs.map(T => ({ Name: T.Name, Path: T.Path, Content: T.Content })),
             });
@@ -509,7 +649,7 @@ export const App: React.FC = () => {
         } catch {
             SetTerminalOutput(Prev => [...Prev, `$ ${Command}`, "Command failed"]);
         }
-    }, [HandleSave, HandleSaveAll, HandleSelectWorkspace, OpenTabs, ActiveFile, FileContent, WorkspacePath]);
+    }, [HandleSave, HandleSaveAll, HandleSelectWorkspace, OpenTabs, ActiveFile, WorkspacePath]);
 
     const HandleRun = useCallback(async () => {
         if (!ActiveFile || IsRunning || ActiveFile.startsWith("viewport:")) return;
@@ -539,6 +679,47 @@ export const App: React.FC = () => {
         StateManager.set("RunOutput", []);
     }, []);
 
+    const StartLiveViewport = useCallback((SourcePath: string, Profile: string) => {
+        const ViewportPath = `viewport:${SourcePath}`;
+        StopLiveViewport(ViewportPath);
+        const StartedAt = performance.now();
+        const RunToken = StartedAt + Math.random();
+        let Version = 0;
+        LiveViewportTokensRef.current.set(ViewportPath, RunToken);
+
+        const Schedule = (Delay: number) => {
+            if (LiveViewportTokensRef.current.get(ViewportPath) !== RunToken) return;
+            const Timer = setTimeout(Tick, Delay);
+            LiveViewportTimersRef.current.set(ViewportPath, Timer);
+        };
+
+        const Tick = async () => {
+            const Now = performance.now();
+            if (ActiveFileRef.current !== ViewportPath) {
+                Schedule(250);
+                return;
+            }
+            if (Now - LastViewportInteractionRef.current < 140) {
+                Schedule(80);
+                return;
+            }
+            const TickStartedAt = performance.now();
+            const CurrentVersion = ++Version;
+            const Elapsed = (performance.now() - StartedAt) / 1000;
+            try {
+                const Result = await SceneService.RunLiveScene({ Path: SourcePath, Profile, Elapsed });
+                if (!Result.Skipped && CurrentVersion === Version && LiveViewportTokensRef.current.get(ViewportPath) === RunToken) {
+                    await RendererService.LoadLiveScene({ Commands: Result.Commands, Profile });
+                }
+            } catch {
+            }
+            const Cost = performance.now() - TickStartedAt;
+            Schedule(Cost > 24 ? Math.min(120, Math.max(48, Cost)) : 33);
+        };
+
+        Schedule(33);
+    }, [StopLiveViewport]);
+
     const HandleOpenViewport = useCallback(async (SourcePath: string) => {
         const ViewportPath = `viewport:${SourcePath}`;
         const FileName = SourcePath.split("\\").pop()?.split("/").pop() || "scene";
@@ -563,11 +744,15 @@ export const App: React.FC = () => {
         }
         SetActiveFile(ViewportPath);
         StateManager.set("ActiveFile", ViewportPath);
+        FileContentRef.current = "";
+        DiskContentRef.current = "";
         SetFileContent("");
+        SetActiveTabModified(false);
 
         try {
             const Result = await SceneService.RunScene({ Path: SourcePath, Profile });
             await RendererService.LoadScene({ Commands: Result.Commands, Profile });
+            StartLiveViewport(SourcePath, Profile);
             const Lines: string[] = [
                 `▶ Scene: ${FileName}`,
                 ...Result.Terminal,
@@ -584,7 +769,7 @@ export const App: React.FC = () => {
                 `err: ${Err}`,
             ]);
         }
-    }, [OpenTabs]);
+    }, [OpenTabs, StartLiveViewport]);
 
     const HandleFolderToggle = useCallback((Path: string) => {
         SetCollapsedFolders(Prev => {
@@ -660,7 +845,10 @@ export const App: React.FC = () => {
             if (ActiveFile && ActiveFile.startsWith(Path)) {
                 SetActiveFile(null);
                 StateManager.set("ActiveFile", null);
+                FileContentRef.current = InitialCode;
+                DiskContentRef.current = InitialCode;
                 SetFileContent(InitialCode);
+                SetActiveTabModified(false);
             }
             const NewTree = await BuildFileTree(WorkspacePath);
             SetFileTree(NewTree);
@@ -688,20 +876,80 @@ export const App: React.FC = () => {
         await HandleOpenViewport(Path);
     }, [WorkspacePath, HandleOpenViewport]);
 
+    const AllWorkspaceFiles = useMemo(
+        () => FlattenTree(FileTree).filter(E => !E.IsDirectory),
+        [FileTree]
+    );
+
+    const PaletteCommands = useMemo(() => [
+        { Id: "settings",  Label: "Open Settings",           Action: () => UILib.Show("Settings") },
+        { Id: "scm",       Label: "Toggle Source Control",   Action: () => UILib.Toggle("SourceControl") },
+        { Id: "save-all",  Label: "Save All Files",          Action: HandleSaveAll },
+        { Id: "workspace", Label: "Open Workspace Folder",   Action: HandleSelectWorkspace },
+    ], [HandleSaveAll, HandleSelectWorkspace]);
+
+    const LangLabels: Record<string, string> = {
+        luau: "Luau", typescript: "TypeScript", javascript: "JavaScript",
+        rust: "Rust", css: "CSS", json: "JSON",
+        python: "Python", html: "HTML", toml: "TOML",
+        wgsl: "WGSL", glsl: "GLSL", markdown: "Markdown",
+        yaml: "YAML", c: "C", cpp: "C++", go: "Go",
+        bash: "Bash", sql: "SQL", csharp: "C#", java: "Java",
+        xml: "XML", plain: "Plain Text",
+    };
+    const ActiveFileName = ActiveFile?.split(/[\\/]/).pop() ?? "";
+    const DisplayLanguage = ActiveFile && !ActiveFile.startsWith("viewport:")
+        ? (LangLabels[DetectLanguage(ActiveFileName)] ?? "Plain Text")
+        : "—";
+
+    // Unsaved count: active tab uses live ref, others use stale tab content
+    const UnsavedCount = OpenTabs.filter(T =>
+        T.Path === ActiveFile
+            ? ActiveTabModified
+            : T.Content !== T.DiskContent
+    ).length;
+
+    const HandleOpenRecent = useCallback(async (FolderPath: string) => {
+        SetIsLoading(true);
+        StateManager.set("AppStatus", "loading");
+        try {
+            const Tree = await BuildFileTree(FolderPath);
+            SetFileTree(Tree);
+            SetWorkspacePath(FolderPath);
+            StateManager.set("WorkspacePath", FolderPath);
+            StateManager.set("FileTree", Tree);
+            const SubFolders = CollectAllFolderPaths(Tree[0]?.Children ?? []);
+            SetCollapsedFolders(new Set(SubFolders));
+            SetTerminalOutput(Prev => [...Prev, `Workspace: ${FolderPath}`]);
+            SetRecentPaths(AddRecentWorkspace(FolderPath));
+            SetAppReady(true);
+        } catch {
+            // folder may no longer exist — remove from recents
+            const Next = GetRecentWorkspaces().filter(P => P !== FolderPath);
+            localStorage.setItem(RECENT_KEY, JSON.stringify(Next));
+            SetRecentPaths(Next);
+        } finally {
+            SetIsLoading(false);
+            StateManager.set("AppStatus", "idle");
+        }
+    }, [BuildFileTree]);
+
     if (!AppReady) {
         return (
-            <div className="App">
+            <div className="App" key="start">
                 <StartScreen
                     OnOpenFolder={HandleOpenFolderFromStart}
                     OnContinue={() => SetAppReady(true)}
+                    OnOpenRecent={HandleOpenRecent}
                     IsLoading={IsLoading}
+                    RecentPaths={RecentPaths}
                 />
             </div>
         );
     }
 
     return (
-        <div className="App" ref={AppRef}>
+        <div className="App AppEnter" key="main" ref={AppRef}>
             <div className="Main">
                 <ActivityBar />
                 {WorkspacePath ? (
@@ -711,7 +959,7 @@ export const App: React.FC = () => {
                         OnFileSelect={HandleFileSelect}
                         CollapsedFolders={CollapsedFolders}
                         OnFolderToggle={HandleFolderToggle}
-                        UnsavedCount={OpenTabs.filter(T => T.Content !== T.DiskContent).length}
+                        UnsavedCount={UnsavedCount}
                         OnSaveAll={HandleSaveAll}
                         OnNewFile={HandleNewFile}
                         OnNewFolder={HandleNewFolder}
@@ -747,6 +995,8 @@ export const App: React.FC = () => {
                         OnSaveFile={HandleSaveFile}
                         SwitchDir={SwitchDir}
                         ShowSavedFlash={SavedFlash}
+                        ActiveFileModified={ActiveTabModified}
+                        ExternalContentVersion={ExternalContentVersion}
                         ViewportContent={
                             OpenTabs.find(T => T.Path === ActiveFile)?.Type === 'viewport'
                                 ? <ViewportTab />
@@ -756,6 +1006,9 @@ export const App: React.FC = () => {
                     <TerminalPanel
                         Output={TerminalOutput}
                         OnCommand={HandleTerminalCommand}
+                        ActiveFile={ActiveFile}
+                        FileContent={FileContent}
+                        Workspace={WorkspacePath}
                     />
                 </div>
                 <PropertiesBar
@@ -772,9 +1025,32 @@ export const App: React.FC = () => {
             <StatusBar
                 Line={CursorLine}
                 Column={CursorCol}
-                Language="Luau"
+                Branch={GitBranch}
+                Language={DisplayLanguage}
                 Encoding="UTF-8"
             />
+            {IsSourceControlOpen && (
+                <SourceControl
+                    WorkspacePath={WorkspacePath}
+                    Branch={GitBranch}
+                    OnClose={() => UILib.Hide("SourceControl")}
+                />
+            )}
+            {IsSettingsOpen && (
+                <SettingsPanel
+                    OnClose={() => UILib.Hide("Settings")}
+                />
+            )}
+            {IsCommandPaletteOpen && (
+                <CommandPalette
+                    OpenTabs={OpenTabs}
+                    AllFiles={AllWorkspaceFiles}
+                    ActiveFile={ActiveFile}
+                    OnSelectFile={HandleFileSelect}
+                    OnClose={() => UILib.Hide("CommandPalette")}
+                    Commands={PaletteCommands}
+                />
+            )}
             {DevMenuOpen && (
                 <DevMenu
                     WorkspacePath={WorkspacePath}
@@ -783,7 +1059,7 @@ export const App: React.FC = () => {
                     TerminalLineCount={TerminalOutput.length}
                     OnInjectScript={HandleDevInjectScript}
                     OnRunScene={HandleDevRunScene}
-                    OnTerminalLog={Lines => SetTerminalOutput(Prev => [...Prev, ...Lines])}
+                    OnTerminalLog={(Lines: string[]) => SetTerminalOutput(Prev => [...Prev, ...Lines])}
                 />
             )}
         </div>

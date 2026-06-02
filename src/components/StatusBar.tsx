@@ -5,6 +5,7 @@ import { UILib } from "../ui/UILib";
 interface StatusBarProps {
     Line:     number;
     Column:   number;
+    Branch:   string;
     Language: string;
     Encoding: string;
 }
@@ -12,6 +13,7 @@ interface StatusBarProps {
 export const StatusBar: React.FC<StatusBarProps> = ({
     Line,
     Column,
+    Branch,
     Language,
     Encoding,
 }) => {
@@ -26,7 +28,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     return (
         <div className={styles.Container}>
             <div className={styles.Left}>
-                <span className={styles.Item}>main</span>
+                <span className={styles.Item}>{Branch}</span>
                 <span className={styles.Item}>{Language}</span>
             </div>
             <div className={styles.Right}>

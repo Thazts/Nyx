@@ -92,6 +92,9 @@ export const ActivityBar: React.FC = () => {
         if (Id === "search") {
             UILib.Toggle("Search");
             UILib.SetView("search");
+        } else if (Id === "source-control") {
+            UILib.Toggle("SourceControl");
+            UILib.SetView("source-control");
         } else {
             UILib.Hide("Search");
             UILib.SetView(Id);
@@ -118,7 +121,7 @@ export const ActivityBar: React.FC = () => {
                 </button>
             ))}
             <div className={styles.Spacer} />
-            <button className={styles.Item} title={ShowLabels ? undefined : "Settings"}>
+            <button className={styles.Item} onClick={() => UILib.Toggle("Settings")} title={ShowLabels ? undefined : "Settings"}>
                 <span className={styles.Icon}>
                     <SettingsIcon />
                 </span>

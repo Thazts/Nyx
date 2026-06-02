@@ -1,3 +1,5 @@
+pub mod agent;
+
 use std::fs;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
@@ -295,10 +297,37 @@ pub struct RunSceneResult {
     pub commands: Vec<serde_json::Value>,
     pub terminal: Vec<String>,
     pub errors:   Vec<String>,
+    pub skipped:  bool,
 }
 
 #[tauri::command]
 pub fn run_scene(path: String, profile: String) -> Result<RunSceneResult, String> {
+    run_scene_at_time(path, profile, None)
+}
+
+#[tauri::command]
+pub fn run_live_scene(
+    path: String,
+    profile: String,
+    elapsed: f64,
+    renderer: State<'_, RendererState>,
+) -> Result<RunSceneResult, String> {
+    {
+        let r = renderer.lock().map_err(|e| e.to_string())?;
+        let s = r.state.lock().map_err(|e| e.to_string())?;
+        if s.last_interaction.elapsed() < std::time::Duration::from_millis(140) {
+            return Ok(RunSceneResult {
+                commands: Vec::new(),
+                terminal: Vec::new(),
+                errors: Vec::new(),
+                skipped: true,
+            });
+        }
+    }
+    run_scene_at_time(path, profile, Some(elapsed))
+}
+
+fn run_scene_at_time(path: String, profile: String, elapsed: Option<f64>) -> Result<RunSceneResult, String> {
     let shim = match profile.as_str() {
         "roblox" => ROBLOX_SHIM,
         other    => return Err(format!("Unknown engine profile: '{}'", other)),
@@ -317,6 +346,9 @@ pub fn run_scene(path: String, profile: String) -> Result<RunSceneResult, String
         Ok(())
     }).map_err(|e| e.to_string())?;
     lua.globals().set("print", print_fn).map_err(|e| e.to_string())?;
+    if let Some(elapsed) = elapsed {
+        lua.globals().set("_NYX_LIVE_TIME", elapsed).map_err(|e| e.to_string())?;
+    }
 
     lua.load(shim).exec()
         .map_err(|e| format!("Runtime shim error: {}", e))?;
@@ -324,6 +356,16 @@ pub fn run_scene(path: String, profile: String) -> Result<RunSceneResult, String
     let mut errors = Vec::new();
     if let Err(e) = lua.load(&user_code).exec() {
         errors.push(e.to_string());
+    }
+    if let Some(elapsed) = elapsed {
+        match lua.globals().get::<mlua::Function>("_nyx_step_live") {
+            Ok(step_live) => {
+                if let Err(e) = step_live.call::<()>(elapsed) {
+                    errors.push(e.to_string());
+                }
+            }
+            Err(e) => errors.push(e.to_string()),
+        }
     }
 
     let (commands, cmd_err) = match read_nyx_commands(&lua) {
@@ -335,7 +377,7 @@ pub fn run_scene(path: String, profile: String) -> Result<RunSceneResult, String
         errors.push(format!("_NYX_COMMANDS read error: {}", e));
     }
 
-    Ok(RunSceneResult { commands, terminal, errors })
+    Ok(RunSceneResult { commands, terminal, errors, skipped: false })
 }
 
 fn read_nyx_commands(lua: &Lua) -> Result<Vec<serde_json::Value>, String> {
@@ -791,6 +833,24 @@ pub fn renderer_load_scene(
 }
 
 #[tauri::command]
+pub fn renderer_load_live_scene(
+    commands: Vec<serde_json::Value>,
+    profile: String,
+    renderer: State<'_, RendererState>,
+) -> Result<(), String> {
+    let r = renderer.lock().map_err(|e| e.to_string())?;
+    let mut s = r.state.lock().map_err(|e| e.to_string())?;
+    if s.last_interaction.elapsed() < std::time::Duration::from_millis(140) {
+        return Ok(());
+    }
+    s.commands = commands;
+    s.profile  = profile;
+    s.skip_camera_meta = true;
+    s.dirty    = true;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn renderer_set_bounds(
     x: i32, y: i32, width: u32, height: u32,
     app: AppHandle,
@@ -1238,4 +1298,162 @@ pub fn renderer_end_drag(renderer: State<'_, RendererState>) -> Result<(), Strin
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
     s.drag_undo_pushed = false;
     Ok(())
+}
+
+// ── AI ────────────────────────────────────────────────────────────────────────
+
+use zeroize::Zeroizing;
+
+const KEYRING_SERVICE:   &str = "nyx-ide";
+const KEYRING_ANTHROPIC: &str = "anthropic";
+const KEYRING_DEEPSEEK:  &str = "deepseek";
+
+fn kr_exists(account: &str) -> bool {
+    keyring::Entry::new(KEYRING_SERVICE, account)
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .is_some()
+}
+
+fn kr_get(account: &str) -> Option<Zeroizing<String>> {
+    keyring::Entry::new(KEYRING_SERVICE, account)
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .map(Zeroizing::new)
+}
+
+#[derive(serde::Deserialize)]
+pub struct AiChatMessage {
+    pub role:    String,
+    pub content: String,
+}
+
+#[derive(Serialize)]
+pub struct AiConfigStatus {
+    pub anthropic_key_set: bool,
+    pub deepseek_key_set:  bool,
+}
+
+#[derive(Serialize, serde::Deserialize, Clone, Default)]
+pub struct AppSettings {
+    #[serde(default = "default_provider")]
+    pub default_provider: String,
+    #[serde(default)]
+    pub obsidian_vault_path: Option<String>,
+    #[serde(default = "default_ai_mode")]
+    pub ai_mode: String,
+}
+
+fn default_provider() -> String { "anthropic".to_string() }
+fn default_ai_mode()   -> String { "supervised".to_string() }
+
+fn settings_path() -> Option<std::path::PathBuf> {
+    let appdata = std::env::var("APPDATA").ok()?;
+    Some(std::path::PathBuf::from(appdata).join("Nyx").join("settings.json"))
+}
+
+#[tauri::command]
+pub fn get_app_settings() -> AppSettings {
+    settings_path()
+        .and_then(|p| fs::read_to_string(&p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn save_app_settings(settings: AppSettings) -> Result<(), String> {
+    let path = settings_path().ok_or("Cannot determine AppData path")?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ai_get_config() -> AiConfigStatus {
+    AiConfigStatus {
+        anthropic_key_set: kr_exists(KEYRING_ANTHROPIC),
+        deepseek_key_set:  kr_exists(KEYRING_DEEPSEEK),
+    }
+}
+
+#[tauri::command]
+pub fn ai_launch_keyman() -> Result<(), String> {
+    let exe_dir = std::env::current_exe()
+        .map_err(|e| e.to_string())?;
+    let exe_dir = exe_dir.parent()
+        .ok_or("Cannot determine exe directory")?;
+    let keyman = exe_dir.join("nyx-keyman.exe");
+
+    std::process::Command::new(&keyman)
+        .spawn()
+        .map_err(|e| format!("Could not launch key manager ({keyman:?}): {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ai_start_agent(
+    provider:  String,
+    messages:  Vec<AiChatMessage>,
+    workspace: Option<String>,
+    mode:      String,
+    window:    tauri::Window,
+    approval:  State<'_, Arc<Mutex<agent::ApprovalState>>>,
+) -> Result<(), String> {
+    let (api_key, model, is_anthropic) = match provider.as_str() {
+        "anthropic" => {
+            let k = kr_get(KEYRING_ANTHROPIC).ok_or("Anthropic API key not configured")?;
+            (k, "claude-sonnet-4-6".to_string(), true)
+        }
+        "deepseek" => {
+            let k = kr_get(KEYRING_DEEPSEEK).ok_or("DeepSeek API key not configured")?;
+            (k, "deepseek-chat".to_string(), false)
+        }
+        _ => return Err(format!("Unknown provider: {provider}")),
+    };
+
+    let global_memory = {
+        let appdata = std::env::var("APPDATA").unwrap_or_default();
+        std::path::PathBuf::from(appdata).join("Nyx").join("NyxMemory")
+    };
+    let project_memory = workspace.as_ref().map(|w| {
+        std::path::PathBuf::from(w).join(".nyx").join("memory")
+    });
+
+    let settings       = get_app_settings();
+    let tool_settings  = agent::ToolSettings {
+        workspace_path:      workspace.clone(),
+        obsidian_vault_path: settings.obsidian_vault_path,
+        global_memory_path:  global_memory,
+        project_memory_path: project_memory,
+    };
+
+    let api_messages: Vec<serde_json::Value> = messages.iter()
+        .map(|m| serde_json::json!({"role": m.role, "content": m.content}))
+        .collect();
+
+    let system     = agent::build_system_prompt(workspace.as_deref());
+    let agent_mode = agent::AgentMode::from_str(&mode);
+
+    let result = agent::run_agent(
+        api_messages, system, &api_key, &model, is_anthropic,
+        tool_settings, Arc::clone(&*approval), agent_mode, window.clone(),
+    ).await;
+
+    if let Err(ref e) = result {
+        let _ = window.emit("ai_error", e.clone());
+    }
+    result
+}
+
+#[tauri::command]
+pub fn ai_tool_respond(
+    approve:  bool,
+    approval: State<'_, Arc<Mutex<agent::ApprovalState>>>,
+) {
+    let mut state = approval.lock().unwrap();
+    if let Some(tx) = state.pending.take() {
+        let _ = tx.send(approve);
+    }
 }

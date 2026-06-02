@@ -210,10 +210,11 @@
     bottom: 0;
     padding: 14px 20px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11.5px;
-    line-height: 1.78;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    font-size: var(--editor-font-size, 11.5px);
+    line-height: var(--editor-line-height, 1.78);
+    white-space: var(--editor-whitespace, pre);
+    word-wrap: normal;
+    overflow-wrap: normal;
     tab-size: 4;
     -moz-tab-size: 4;
     overflow: hidden;
@@ -223,22 +224,22 @@
 }
 
 @keyframes SlideInFromRight {
-    from { opacity: 0; transform: translateX(11px); }
+    from { opacity: 0; transform: translateX(24px); }
     to   { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes SlideInFromLeft {
-    from { opacity: 0; transform: translateX(-11px); }
+    from { opacity: 0; transform: translateX(-24px); }
     to   { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes SlideInFromBelow {
-    from { opacity: 0; transform: translateY(7px); }
+    from { opacity: 0; transform: translateY(16px); }
     to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes SlideInFromAbove {
-    from { opacity: 0; transform: translateY(-7px); }
+    from { opacity: 0; transform: translateY(-16px); }
     to   { opacity: 1; transform: translateY(0); }
 }
 
@@ -247,19 +248,32 @@
     to   { opacity: 1; }
 }
 
-.SlideFromRight { animation: SlideInFromRight 0.21s var(--smooth-out) both; }
-.SlideFromLeft  { animation: SlideInFromLeft  0.21s var(--smooth-out) both; }
-.SlideFromBelow { animation: SlideInFromBelow 0.18s var(--smooth-out) both; }
-.SlideFromAbove { animation: SlideInFromAbove 0.18s var(--smooth-out) both; }
-.FadeIn         { animation: FadeIn 0.14s ease-out both; }
+.SlideFromRight { animation: SlideInFromRight 0.38s var(--spring) both; }
+.SlideFromLeft  { animation: SlideInFromLeft  0.38s var(--spring) both; }
+.SlideFromBelow { animation: SlideInFromBelow 0.32s var(--spring) both; }
+.SlideFromAbove { animation: SlideInFromAbove 0.32s var(--spring) both; }
+.FadeIn         { animation: FadeIn 0.18s ease-out both; }
+
+.CurrentLineHighlight {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: var(--cursor-top, calc(14px + var(--cursor-line, 0) * var(--editor-line-height, 1.78) * var(--editor-font-size, 11.5px)));
+    height: var(--cursor-height, calc(var(--editor-line-height, 1.78) * var(--editor-font-size, 11.5px)));
+    background: rgba(212, 176, 204, 0.05);
+    border-top: 1px solid rgba(212, 176, 204, 0.07);
+    border-bottom: 1px solid rgba(212, 176, 204, 0.07);
+    pointer-events: none;
+    z-index: 0;
+}
 
 .LineNumbers {
     width: 46px;
     flex-shrink: 0;
     padding: 14px 0;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11.5px;
-    line-height: 1.78;
+    font-size: var(--editor-font-size, 11.5px);
+    line-height: var(--editor-line-height, 1.78);
     text-align: right;
     user-select: none;
     color: var(--txt3);
@@ -276,12 +290,18 @@
 .LineNum {
     display: block;
     padding-right: 10px;
+    cursor: pointer;
     transition: color var(--tf), transform var(--td) var(--spring);
 }
 
 .LineNum:hover {
     color: var(--txt2);
     transform: translateX(-2px);
+}
+
+.LineNum:active {
+    transform: translateX(-1px) scale(0.92);
+    transition-duration: var(--td-fast);
 }
 
 .ActiveLine {
@@ -299,8 +319,8 @@
     height: 100%;
     padding: 14px 20px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11.5px;
-    line-height: 1.78;
+    font-size: var(--editor-font-size, 11.5px);
+    line-height: var(--editor-line-height, 1.78);
     background: transparent;
     color: transparent;
     caret-color: var(--txt);
@@ -308,11 +328,13 @@
     outline: none;
     resize: none;
     z-index: 1;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    white-space: var(--editor-whitespace, pre);
+    word-wrap: normal;
+    overflow-wrap: normal;
     tab-size: 4;
     -moz-tab-size: 4;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: var(--editor-overflow-x, auto);
     transition: box-shadow var(--td) var(--spring);
 }
 
@@ -333,15 +355,16 @@
     bottom: 0;
     padding: 14px 20px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11.5px;
-    line-height: 1.78;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    font-size: var(--editor-font-size, 11.5px);
+    line-height: var(--editor-line-height, 1.78);
+    white-space: var(--editor-whitespace, pre);
+    word-wrap: normal;
+    overflow-wrap: normal;
     tab-size: 4;
     -moz-tab-size: 4;
     overflow: hidden;
     pointer-events: none;
-    z-index: -1;
+    z-index: 0;
     color: transparent;
 }
 

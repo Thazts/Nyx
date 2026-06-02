@@ -1,5 +1,7 @@
 -- Nyx Engine — Roblox Runtime Shim
 _NYX_COMMANDS = {}
+_NYX_LIVE_TIME = _NYX_LIVE_TIME or 0
+_NYX_HEARTBEAT_CALLBACKS = {}
 
 local function _nyx_json_val(V, Depth)
     Depth = Depth or 0
@@ -149,8 +151,36 @@ Enum.Material = MakeEnum({
 })
 
 Enum.PartType = MakeEnum({ "Block", "Sphere", "Cylinder" })
+Enum.EasingStyle = MakeEnum({ "Linear", "Sine", "Quad" })
+Enum.EasingDirection = MakeEnum({ "In", "Out", "InOut" })
 
 local _NYX_PART_ID = 0
+
+local function _NyxVec(V)
+    return { X = V.X or 0, Y = V.Y or 0, Z = V.Z or 0 }
+end
+
+local function _NyxColor(V)
+    return { R = V.R or 0, G = V.G or 0, B = V.B or 0 }
+end
+
+local function _NyxFrame(V)
+    return { X = V.X or 0, Y = V.Y or 0, Z = V.Z or 0, RX = V.RX or 0, RY = V.RY or 0, RZ = V.RZ or 0 }
+end
+
+local function _NyxApplyPartProperty(P, K, V)
+    local C = P and P._NyxCommand
+    if not C then return end
+    if K == "Position" then C.Position = _NyxVec(V); C.CFrame.X = V.X or 0; C.CFrame.Y = V.Y or 0; C.CFrame.Z = V.Z or 0 end
+    if K == "Size" then C.Size = _NyxVec(V) end
+    if K == "Color" then C.Color = _NyxColor(V) end
+    if K == "CFrame" then C.CFrame = _NyxFrame(V); C.Position = { X = V.X or 0, Y = V.Y or 0, Z = V.Z or 0 } end
+    if K == "Transparency" then C.Transparency = V or 0 end
+    if K == "Material" then C.Material = tostring(V or "SmoothPlastic") end
+    if K == "Shape" then C.Shape = tostring(V or "Block") end
+    if K == "Anchored" then C.Anchored = V and true or false end
+    if K == "CanCollide" then C.CanCollide = V and true or false end
+end
 
 Part = {}
 Part.__index = Part
@@ -187,7 +217,7 @@ function workspace:AddPart(P)
     local Siz = P.Size     or Vector3.new(4, 1.2, 2)
     local Col = P.Color    or Color3.fromRGB(163, 162, 165)
     local CF  = P.CFrame   or CFrame.new(Pos.X, Pos.Y, Pos.Z)
-    _NYX_COMMANDS[#_NYX_COMMANDS + 1] = {
+    local Command = {
         Cmd          = "AddPart",
         Id           = P._id,
         Name         = P.Name or P._id,
@@ -201,6 +231,9 @@ function workspace:AddPart(P)
         Material     = tostring(P.Material or "SmoothPlastic"),
         Shape        = tostring(P.Shape or "Block"),
     }
+    _NYX_COMMANDS[#_NYX_COMMANDS + 1] = Command
+    P._NyxCommand = Command
+    P._NyxReg = true
 end
 
 function workspace:AddParts(...)
@@ -297,10 +330,85 @@ do
                 if K == "Parent" and V == workspace and not _D._NyxReg then
                     _D._NyxReg = true
                     workspace:AddPart(_D)
+                elseif _D._NyxReg then
+                    _NyxApplyPartProperty(_D, K, V)
                 end
             end,
         })
     end
+end
+TweenInfo = {}
+TweenInfo.__index = TweenInfo
+
+function TweenInfo.new(Time, EasingStyle, EasingDirection, RepeatCount, Reverses, DelayTime)
+    return setmetatable({
+        Time = Time or 1,
+        EasingStyle = EasingStyle or Enum.EasingStyle.Linear,
+        EasingDirection = EasingDirection or Enum.EasingDirection.Out,
+        RepeatCount = RepeatCount or 0,
+        Reverses = Reverses and true or false,
+        DelayTime = DelayTime or 0,
+    }, TweenInfo)
+end
+
+local function _NyxEase(Alpha, Style, Direction)
+    Alpha = math.max(0, math.min(1, Alpha))
+    if Direction == Enum.EasingDirection.Out then return 1 - _NyxEase(1 - Alpha, Style, Enum.EasingDirection.In) end
+    if Direction == Enum.EasingDirection.InOut then
+        if Alpha < 0.5 then return _NyxEase(Alpha * 2, Style, Enum.EasingDirection.In) / 2 end
+        return 0.5 + _NyxEase((Alpha - 0.5) * 2, Style, Enum.EasingDirection.Out) / 2
+    end
+    if Style == Enum.EasingStyle.Sine then return 1 - math.cos((Alpha * math.pi) / 2) end
+    if Style == Enum.EasingStyle.Quad then return Alpha * Alpha end
+    return Alpha
+end
+
+local function _NyxLerp(A, B, Alpha)
+    local MT = getmetatable(B)
+    if type(A) == "number" and type(B) == "number" then return A + (B - A) * Alpha end
+    if MT == Vector3 then return Vector3.new(_NyxLerp(A.X or 0, B.X or 0, Alpha), _NyxLerp(A.Y or 0, B.Y or 0, Alpha), _NyxLerp(A.Z or 0, B.Z or 0, Alpha)) end
+    if MT == Color3 then return Color3.new(_NyxLerp(A.R or 0, B.R or 0, Alpha), _NyxLerp(A.G or 0, B.G or 0, Alpha), _NyxLerp(A.B or 0, B.B or 0, Alpha)) end
+    if MT == CFrame then return CFrame.new(_NyxLerp(A.X or 0, B.X or 0, Alpha), _NyxLerp(A.Y or 0, B.Y or 0, Alpha), _NyxLerp(A.Z or 0, B.Z or 0, Alpha)) * CFrame.Angles(_NyxLerp(A.RX or 0, B.RX or 0, Alpha), _NyxLerp(A.RY or 0, B.RY or 0, Alpha), _NyxLerp(A.RZ or 0, B.RZ or 0, Alpha)) end
+    return Alpha >= 1 and B or A
+end
+
+TweenService = {}
+
+function TweenService:Create(Target, Info, Goals)
+    Info = Info or TweenInfo.new(1)
+    Goals = Goals or {}
+    local Starts = {}
+    for K in pairs(Goals) do Starts[K] = Target[K] end
+    return {
+        Play = function()
+            local Duration = math.max(Info.Time or 1, 0.0001)
+            local LocalTime = (_NYX_LIVE_TIME or 0) - (Info.DelayTime or 0)
+            if LocalTime < 0 then return end
+            local Cycle = math.floor(LocalTime / Duration)
+            local RepeatCount = Info.RepeatCount or 0
+            if RepeatCount >= 0 and Cycle > RepeatCount then LocalTime = Duration; Cycle = RepeatCount end
+            local Alpha = (LocalTime % Duration) / Duration
+            if RepeatCount >= 0 and Cycle == RepeatCount and LocalTime >= Duration then Alpha = 1 end
+            if Info.Reverses and Cycle % 2 == 1 then Alpha = 1 - Alpha end
+            Alpha = _NyxEase(Alpha, Info.EasingStyle, Info.EasingDirection)
+            for K, V in pairs(Goals) do Target[K] = _NyxLerp(Starts[K], V, Alpha) end
+        end,
+        Cancel = function() end,
+        Pause = function() end,
+    }
+end
+
+RunService = {}
+RunService.Heartbeat = {}
+RunService.RenderStepped = RunService.Heartbeat
+
+function RunService.Heartbeat:Connect(Callback)
+    _NYX_HEARTBEAT_CALLBACKS[#_NYX_HEARTBEAT_CALLBACKS + 1] = Callback
+    return { Disconnect = function() end }
+end
+
+function _nyx_step_live(DeltaTime)
+    for _, Callback in ipairs(_NYX_HEARTBEAT_CALLBACKS) do Callback(DeltaTime or 0) end
 end
 PointLight = {}
 
@@ -338,6 +446,8 @@ game = { Workspace = workspace, workspace = workspace }
 function game:GetService(Name)
     if Name == "Workspace" or Name == "workspace" then return workspace end
     if Name == "Lighting"  then return Lighting   end
+    if Name == "TweenService" then return TweenService end
+    if Name == "RunService" then return RunService end
     if Name == "Players"   then return {}         end
     return {}
 end

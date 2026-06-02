@@ -88,6 +88,7 @@ export const ViewportTab: React.FC = () => {
     return (
         <div
             ref={AnchorRef}
+            data-viewport
             className={styles.Container}
         />
     );

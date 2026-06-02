@@ -2,9 +2,11 @@ import React from "react";
 import styles from "../styles/StartScreen.module.css";
 
 interface StartScreenProps {
-    OnOpenFolder: () => void;
-    OnContinue: () => void;
-    IsLoading: boolean;
+    OnOpenFolder:  () => void;
+    OnContinue:    () => void;
+    OnOpenRecent:  (Path: string) => void;
+    IsLoading:     boolean;
+    RecentPaths:   string[];
 }
 
 const FolderIcon = () => (
@@ -13,7 +15,7 @@ const FolderIcon = () => (
     </svg>
 );
 
-export const StartScreen: React.FC<StartScreenProps> = ({ OnOpenFolder, OnContinue, IsLoading }) => {
+export const StartScreen: React.FC<StartScreenProps> = ({ OnOpenFolder, OnContinue, OnOpenRecent, IsLoading, RecentPaths }) => {
     return (
         <div className={styles.Container}>
             <div className={styles.Glow} />
@@ -46,6 +48,22 @@ export const StartScreen: React.FC<StartScreenProps> = ({ OnOpenFolder, OnContin
                                 Continue without folder
                             </button>
                         </div>
+
+                        {RecentPaths.length > 0 && (
+                            <div className={styles.Recent}>
+                                <span className={styles.RecentLabel}>Recent</span>
+                                {RecentPaths.map(P => {
+                                    const Name = P.split(/[\\/]/).pop() ?? P;
+                                    const Dir  = P.slice(0, P.length - Name.length - 1);
+                                    return (
+                                        <button key={P} className={styles.RecentItem} onClick={() => OnOpenRecent(P)}>
+                                            <span className={styles.RecentName}>{Name}</span>
+                                            <span className={styles.RecentPath}>{Dir}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </>
                 )}
             </div>

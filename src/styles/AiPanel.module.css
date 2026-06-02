@@ -1,0 +1,365 @@
+.Panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.Toolbar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 14px;
+    border-bottom: 1px solid var(--brd);
+    flex-shrink: 0;
+}
+
+.ProviderGroup {
+    display: flex;
+    gap: 3px;
+}
+
+.ProviderBtn {
+    padding: 3px 9px;
+    font-size: 9.5px;
+    font-weight: 600;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+    font-family: inherit;
+    letter-spacing: 0.03em;
+}
+
+.ProviderBtn:hover { color: var(--txt2); background: rgba(255,255,255,0.04); }
+
+.ProviderBtnActive {
+    color: var(--acc) !important;
+    border-color: rgba(212,176,204,0.3) !important;
+    background: rgba(212,176,204,0.07) !important;
+}
+
+.ProviderBtnDim { opacity: 0.4; }
+
+.ContextBadge {
+    font-size: 9px;
+    color: var(--txt3);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--brd);
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-family: 'Consolas', monospace;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ClearBtn {
+    margin-left: auto;
+    padding: 3px 9px;
+    font-size: 9.5px;
+    font-weight: 600;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf);
+    font-family: inherit;
+}
+
+.ClearBtn:hover { color: var(--txt2); border-color: rgba(255,255,255,0.1); }
+
+.Messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+}
+
+.Empty {
+    color: var(--txt3);
+    font-size: 10.5px;
+    text-align: center;
+    padding: 24px 0;
+    line-height: 1.6;
+}
+
+.Message {
+    display: flex;
+}
+
+.MessageUser { justify-content: flex-end; }
+.MessageAssistant { justify-content: flex-start; }
+
+.MessageBubble {
+    max-width: 88%;
+    padding: 8px 11px;
+    border-radius: 9px;
+    font-size: 11px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.MessageUser .MessageBubble {
+    background: rgba(212,176,204,0.1);
+    border: 1px solid rgba(212,176,204,0.18);
+    color: var(--txt);
+    border-bottom-right-radius: 3px;
+}
+
+.MessageAssistant .MessageBubble {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--brd);
+    color: var(--txt2);
+    border-bottom-left-radius: 3px;
+}
+
+.Thinking {
+    color: var(--acc);
+    animation: Blink 0.9s step-start infinite;
+}
+
+@keyframes Blink {
+    50% { opacity: 0; }
+}
+
+.ErrorRow {
+    font-size: 10px;
+    color: #E8968A;
+    background: rgba(232,150,138,0.07);
+    border: 1px solid rgba(232,150,138,0.2);
+    border-radius: 6px;
+    padding: 7px 11px;
+}
+
+.InputRow {
+    display: flex;
+    align-items: flex-end;
+    gap: 7px;
+    padding: 7px 14px;
+    border-top: 1px solid var(--brd);
+    flex-shrink: 0;
+}
+
+.Input {
+    flex: 1;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--brd);
+    border-radius: 7px;
+    color: var(--txt);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    padding: 6px 10px;
+    resize: none;
+    outline: none;
+    min-height: 32px;
+    max-height: 100px;
+    overflow-y: auto;
+    transition: border-color var(--tf);
+    field-sizing: content;
+}
+
+.Input:focus { border-color: rgba(212,176,204,0.3); }
+.Input::placeholder { color: var(--txt3); }
+.Input:disabled { opacity: 0.5; }
+
+.SendBtn {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    border: 1px solid rgba(212,176,204,0.25);
+    background: rgba(212,176,204,0.1);
+    color: var(--acc);
+    font-size: 15px;
+    cursor: pointer;
+    transition: background var(--tf), transform calc(var(--td) * 0.6) var(--spring), opacity var(--tf);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-family: inherit;
+}
+
+.SendBtn:hover:not(:disabled) { background: rgba(212,176,204,0.18); transform: scale(1.08); }
+.SendBtn:active:not(:disabled) { transform: scale(0.93); }
+.SendBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.SendBtnBusy {
+    animation: BtnPulse 1.1s ease-in-out infinite;
+    cursor: not-allowed;
+}
+
+@keyframes BtnPulse {
+    0%, 100% { opacity: 0.4; }
+    50%       { opacity: 1; }
+}
+
+/* ── Mode toggle ──────────────────────────────────────────────────────────── */
+
+.ModeBtn {
+    padding: 3px 8px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+    font-family: inherit;
+}
+
+.ModeBtn:hover { color: var(--txt2); }
+
+.ModeBtnAuto {
+    color: #D4B87A !important;
+    border-color: rgba(212,184,122,0.3) !important;
+    background: rgba(212,184,122,0.06) !important;
+}
+
+/* ── Tool call cards ──────────────────────────────────────────────────────── */
+
+.ToolCard {
+    border-radius: 7px;
+    border: 1px solid var(--brd);
+    background: rgba(255,255,255,0.02);
+    overflow: hidden;
+    font-size: 10px;
+    animation: ToolIn 0.18s var(--smooth-out) both;
+}
+
+@keyframes ToolIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.ToolCardRunning { border-color: rgba(212,176,204,0.18); }
+.ToolCardDone    { border-color: rgba(100,220,130,0.18); background: rgba(100,220,130,0.03); }
+.ToolCardError   { border-color: rgba(220,100,100,0.2);  background: rgba(220,100,100,0.03); }
+
+.ToolCardHeader {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 10px;
+}
+
+.ToolIcon {
+    font-size: 11px;
+    color: var(--acc);
+    flex-shrink: 0;
+    width: 14px;
+    text-align: center;
+}
+
+.ToolName {
+    color: var(--txt2);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    flex-shrink: 0;
+}
+
+.ToolArg {
+    color: var(--txt3);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.ToolStatus {
+    font-size: 10px;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.ToolCardDone    .ToolStatus { color: #64dc82; }
+.ToolCardError   .ToolStatus { color: #dc6464; }
+.ToolCardRunning .ToolStatus { color: var(--acc); animation: BtnPulse 1.1s ease-in-out infinite; }
+
+.ToolResult {
+    padding: 4px 10px 7px 10px;
+    border-top: 1px solid var(--brd);
+    color: #dc6464;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    word-break: break-all;
+}
+
+/* ── Approval card ────────────────────────────────────────────────────────── */
+
+.ApprovalCard {
+    border-radius: 7px;
+    border: 1px solid rgba(212,184,122,0.3);
+    background: rgba(212,184,122,0.05);
+    padding: 9px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    animation: ToolIn 0.18s var(--smooth-out) both;
+}
+
+.ApprovalText {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 10.5px;
+    color: var(--txt2);
+    min-width: 0;
+}
+
+.ApprovalText strong { color: var(--txt); }
+
+.ApprovalActions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.ApproveBtn {
+    padding: 4px 12px;
+    background: rgba(100,220,130,0.1);
+    border: 1px solid rgba(100,220,130,0.3);
+    border-radius: 5px;
+    color: #64dc82;
+    font-size: 10px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background var(--tf), transform calc(var(--td)*0.5) var(--spring);
+}
+
+.ApproveBtn:hover  { background: rgba(100,220,130,0.18); }
+.ApproveBtn:active { transform: scale(0.94); }
+
+.DenyBtn {
+    padding: 4px 12px;
+    background: transparent;
+    border: 1px solid var(--brd);
+    border-radius: 5px;
+    color: var(--txt3);
+    font-size: 10px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf), transform calc(var(--td)*0.5) var(--spring);
+}
+
+.DenyBtn:hover  { color: var(--txt2); border-color: rgba(255,255,255,0.12); }
+.DenyBtn:active { transform: scale(0.94); }

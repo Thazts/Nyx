@@ -25,6 +25,28 @@ interface PendingRename {
     Name: string;
 }
 
+const ExtIconClass: Record<string, string> = {
+    lua: "IconGreen", luau: "IconGreen",
+    ts: "IconBlue", tsx: "IconBlue", js: "IconAmber", jsx: "IconAmber",
+    rs: "IconAmber",
+    py: "IconGreen",
+    css: "IconPurple",
+    json: "IconAmber", toml: "IconAmber", yaml: "IconAmber", yml: "IconAmber",
+    html: "IconPink", htm: "IconPink", xml: "IconPink",
+    md: "IconMuted",
+    c: "IconBlue", h: "IconBlue", cpp: "IconBlue", hpp: "IconBlue", cc: "IconBlue",
+    go: "IconBlue",
+    sh: "IconAmber", bash: "IconAmber",
+    sql: "IconPurple",
+    cs: "IconBlue", java: "IconBlue",
+    wgsl: "IconGreen", glsl: "IconGreen", vert: "IconGreen", frag: "IconGreen",
+};
+
+function GetFileIconClass(Name: string): string {
+    const Ext = Name.split(".").pop()?.toLowerCase() ?? "";
+    return ExtIconClass[Ext] ?? "IconMuted";
+}
+
 const SortEntries = (Entries: FileEntry[]): FileEntry[] =>
     [...Entries].sort((A, B) => {
         if (A.IsDirectory !== B.IsDirectory) return A.IsDirectory ? -1 : 1;
@@ -276,7 +298,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             SetCtxMenu({ Entry, X: E.clientX, Y: E.clientY, IsRoot: Entry.Path === RootDir });
                         }}
                     >
-                        <span className={styles.Icon}>
+                        <span className={`${styles.Icon} ${Entry.IsDirectory ? "" : styles[GetFileIconClass(Entry.Name)]}`}>
                             {Entry.IsDirectory ? FolderSvg(IsCollapsed && !IsCollapsing) : FileSvg()}
                         </span>
                         <span className={styles.Name}>{Entry.Name}</span>

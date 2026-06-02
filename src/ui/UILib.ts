@@ -77,9 +77,12 @@ export const UILib = {
     },
 };
 
-UILib.Register("DevMenu",  false);
-UILib.Register("Terminal", true);
-UILib.Register("Search",   false);
+UILib.Register("DevMenu",          false);
+UILib.Register("Terminal",         true);
+UILib.Register("Search",           false);
+UILib.Register("SourceControl",    false);
+UILib.Register("Settings",         false);
+UILib.Register("CommandPalette",   false);
 
 export function UsePanel(Name: string): boolean {
     const [Visible, SetVisible] = useState(() => UILib.IsVisible(Name));

@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 pub mod camera;
 pub mod physics;
@@ -33,6 +34,8 @@ pub struct SceneState {
     pub selected:          Option<String>,
     pub gizmo_mode:        String,
     pub drag_undo_pushed:  bool,
+    pub skip_camera_meta:  bool,
+    pub last_interaction:  Instant,
 }
 
 impl Default for SceneState {
@@ -47,6 +50,8 @@ impl Default for SceneState {
             selected: None,
             gizmo_mode: "move".to_string(),
             drag_undo_pushed: false,
+            skip_camera_meta: false,
+            last_interaction: Instant::now(),
         }
     }
 }
@@ -139,15 +144,17 @@ fn render_loop(
             scene_renderer.resize(&render.device, format, w, h);
         }
         if dirty {
-            let (commands, selected, gizmo_mode) = {
-                let s = state.lock().unwrap();
-                (s.commands.clone(), s.selected.clone(), s.gizmo_mode.clone())
+            let (commands, selected, gizmo_mode, skip_camera_meta) = {
+                let mut s = state.lock().unwrap();
+                let skip_camera_meta = s.skip_camera_meta;
+                s.skip_camera_meta = false;
+                (s.commands.clone(), s.selected.clone(), s.gizmo_mode.clone(), skip_camera_meta)
             };
             scene_renderer.load_commands(&render.queue, &commands);
             scene_renderer.load_gizmo(&render.queue, selected.as_deref(), &commands, &gizmo_mode);
 
             let mut s = state.lock().unwrap();
-            process_meta_commands(&commands, &mut s.camera, &mut sky);
+            process_meta_commands(&commands, &mut s.camera, &mut sky, skip_camera_meta);
             camera = s.camera.clone();
         }
 
@@ -176,6 +183,7 @@ fn process_meta_commands(
     commands: &[serde_json::Value],
     camera:   &mut OrbitalCamera,
     sky:      &mut wgpu::Color,
+    skip_camera_meta: bool,
 ) {
     for cmd in commands {
         match cmd.get("Cmd").and_then(|v| v.as_str()) {
@@ -186,7 +194,7 @@ fn process_meta_commands(
                     sky.b = col.get("B").and_then(|v| v.as_f64()).unwrap_or(0.93);
                 }
             }
-            Some("SetCamera") => {
+            Some("SetCamera") if !skip_camera_meta => {
                 let pos  = cmd.get("Position");
                 let look = cmd.get("LookAt");
                 let f    = |obj: Option<&serde_json::Value>, k: &str, d: f64| -> f32 {
