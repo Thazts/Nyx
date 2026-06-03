@@ -15,6 +15,7 @@ import { NativeCommands } from "./services/NativeCommands";
 import { StateManager } from "./state/StateManager";
 import { SceneService } from "./services/SceneService";
 import { RendererService } from "./services/RendererService";
+import { InferProfileFromPath } from "./services/EngineProfiles";
 import { DevMenu } from "@devtools";
 import { SourceControl } from "./components/SourceControl";
 import { SettingsPanel, InitSettings } from "./components/SettingsPanel";
@@ -724,7 +725,7 @@ export const App: React.FC = () => {
         const ViewportPath = `viewport:${SourcePath}`;
         const FileName = SourcePath.split("\\").pop()?.split("/").pop() || "scene";
         const TabName = `[Scene] ${FileName}`;
-        const Profile = 'roblox';
+        const Profile = InferProfileFromPath(SourcePath).Id;
 
         const AlreadyOpen = OpenTabs.find(T => T.Path === ViewportPath);
         if (!AlreadyOpen) {
@@ -752,7 +753,9 @@ export const App: React.FC = () => {
         try {
             const Result = await SceneService.RunScene({ Path: SourcePath, Profile });
             await RendererService.LoadScene({ Commands: Result.Commands, Profile });
-            StartLiveViewport(SourcePath, Profile);
+            if (Profile === "roblox") {
+                StartLiveViewport(SourcePath, Profile);
+            }
             const Lines: string[] = [
                 `▶ Scene: ${FileName}`,
                 ...Result.Terminal,

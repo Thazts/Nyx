@@ -1,13 +1,35 @@
 export interface Vec3 { X: number; Y: number; Z: number; }
 export interface RGB  { R: number; G: number; B: number; }
 
+export interface PhysicsState {
+    Profile?:     string;
+    Sleeping?:    boolean;
+    Anchored?:    boolean;
+    CanCollide?:  boolean;
+    Shape?:       string;
+    Material?:    string;
+    Mass?:        number;
+    Density?:     number;
+    Friction?:    number;
+    Elasticity?:  number;
+    LinearSpeed?: number;
+}
+
+// { X, Y, Z }
+export interface PhysicsVector extends Vec3 {}
+
 export type SceneCommand =
     | { Cmd: "SetGravity";  Value: number }
     | { Cmd: "SetSkybox";   Color: RGB }
     | { Cmd: "AddPart";     Id: string; Name: string; Position: Vec3; Size: Vec3;
         Color: RGB; Anchored: boolean; CanCollide: boolean;
         Material: string; Transparency: number; Shape: "Block" | "Sphere" | "Cylinder";
-        CFrame?: { X: number; Y: number; Z: number; RX: number; RY: number; RZ: number } }
+        CFrame?: { X: number; Y: number; Z: number; RX: number; RY: number; RZ: number };
+        AssemblyLinearVelocity?: PhysicsVector; Velocity?: PhysicsVector;
+        AssemblyAngularVelocity?: PhysicsVector; RotVelocity?: PhysicsVector;
+        Force?: PhysicsVector; Impulse?: PhysicsVector;
+        Massless?: boolean; Mass?: number; Density?: number; Friction?: number; Elasticity?: number;
+        Physics?: PhysicsState }
     | { Cmd: "AddLight";    LightType: "Directional" | "Point" | "Ambient";
         Position: Vec3; Color: RGB; Intensity: number }
     | { Cmd: "SetCamera";   Position: Vec3; LookAt: Vec3 }
@@ -58,8 +80,51 @@ export const RobloxProfile: EngineProfile = {
     DefaultSkyColor: { R: 0.39, G: 0.58, B: 0.93 },
 };
 
-export const AllProfiles: EngineProfile[] = [RobloxProfile];
+export const UnityProfile: EngineProfile = {
+    Id:    "unity",
+    Label: "Unity",
+    Gravity: 9.81,
+    Materials: {
+        Default:       { Friction: 0.60, Restitution: 0.00 },
+        SmoothPlastic: { Friction: 0.45, Restitution: 0.00 },
+        Plastic:       { Friction: 0.45, Restitution: 0.00 },
+        Wood:          { Friction: 0.50, Restitution: 0.05 },
+        Metal:         { Friction: 0.55, Restitution: 0.05 },
+        Concrete:      { Friction: 0.70, Restitution: 0.00 },
+        Ice:           { Friction: 0.03, Restitution: 0.00 },
+        Rubber:        { Friction: 0.95, Restitution: 0.35 },
+        Glass:         { Friction: 0.20, Restitution: 0.02 },
+    },
+    DefaultSkyColor: { R: 0.32, G: 0.42, B: 0.55 },
+};
+
+export const UnrealProfile: EngineProfile = {
+    Id:    "unreal",
+    Label: "Unreal Engine",
+    Gravity: 980.0,
+    Materials: {
+        Default:       { Friction: 0.70, Restitution: 0.00 },
+        SmoothPlastic: { Friction: 0.45, Restitution: 0.00 },
+        Plastic:       { Friction: 0.45, Restitution: 0.00 },
+        Wood:          { Friction: 0.60, Restitution: 0.05 },
+        Metal:         { Friction: 0.62, Restitution: 0.04 },
+        Concrete:      { Friction: 0.85, Restitution: 0.00 },
+        Ice:           { Friction: 0.02, Restitution: 0.00 },
+        Rubber:        { Friction: 1.00, Restitution: 0.25 },
+        Glass:         { Friction: 0.25, Restitution: 0.02 },
+    },
+    DefaultSkyColor: { R: 0.38, G: 0.50, B: 0.68 },
+};
+
+export const AllProfiles: EngineProfile[] = [RobloxProfile, UnityProfile, UnrealProfile];
 
 export function GetProfile(Id: string): EngineProfile {
     return AllProfiles.find(P => P.Id === Id) ?? RobloxProfile;
+}
+
+export function InferProfileFromPath(Path: string): EngineProfile {
+    const Ext = Path.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase() ?? "";
+    if (Ext === "cs") return UnityProfile;
+    if (Ext === "cpp" || Ext === "cc" || Ext === "cxx" || Ext === "h" || Ext === "hpp") return UnrealProfile;
+    return RobloxProfile;
 }

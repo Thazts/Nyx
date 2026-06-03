@@ -49,7 +49,7 @@ const GetLineClass = (Line: string, S: typeof styles): string => {
 };
 
 const SupportedExts = new Set(["lua", "luau", "py", "js"]);
-const ViewportExts  = new Set(["lua", "luau"]);
+const ViewportExts  = new Set(["lua", "luau", "cs", "cpp", "cc", "cxx", "h", "hpp"]);
 
 export const PropertiesBar: React.FC<PropertiesBarProps> = ({
     SelectedEntry,

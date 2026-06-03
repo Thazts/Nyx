@@ -168,18 +168,46 @@ local function _NyxFrame(V)
     return { X = V.X or 0, Y = V.Y or 0, Z = V.Z or 0, RX = V.RX or 0, RY = V.RY or 0, RZ = V.RZ or 0 }
 end
 
+local function _NyxNonZeroVec(V)
+    if not V then return false end
+    return (V.X or 0) ~= 0 or (V.Y or 0) ~= 0 or (V.Z or 0) ~= 0
+end
+
+local function _NyxTouchesPhysics(K)
+    return K == "AssemblyLinearVelocity" or K == "Velocity"
+        or K == "AssemblyAngularVelocity" or K == "RotVelocity"
+        or K == "Force" or K == "Impulse"
+        or K == "Massless" or K == "Mass" or K == "Density"
+        or K == "Friction" or K == "Elasticity"
+end
+
 local function _NyxApplyPartProperty(P, K, V)
     local C = P and P._NyxCommand
+    if P and _NyxTouchesPhysics(K) then
+        P._NyxPhysicsTouched = P._NyxPhysicsTouched or {}
+        P._NyxPhysicsTouched[K] = true
+    end
     if not C then return end
     if K == "Position" then C.Position = _NyxVec(V); C.CFrame.X = V.X or 0; C.CFrame.Y = V.Y or 0; C.CFrame.Z = V.Z or 0 end
     if K == "Size" then C.Size = _NyxVec(V) end
     if K == "Color" then C.Color = _NyxColor(V) end
     if K == "CFrame" then C.CFrame = _NyxFrame(V); C.Position = { X = V.X or 0, Y = V.Y or 0, Z = V.Z or 0 } end
+    if K == "AssemblyLinearVelocity" then C.AssemblyLinearVelocity = _NyxVec(V); C.Velocity = _NyxVec(V) end
+    if K == "Velocity" then C.Velocity = _NyxVec(V); C.AssemblyLinearVelocity = _NyxVec(V) end
+    if K == "AssemblyAngularVelocity" then C.AssemblyAngularVelocity = _NyxVec(V); C.RotVelocity = _NyxVec(V) end
+    if K == "RotVelocity" then C.RotVelocity = _NyxVec(V); C.AssemblyAngularVelocity = _NyxVec(V) end
+    if K == "Force" then C.Force = _NyxVec(V) end
+    if K == "Impulse" then C.Impulse = _NyxVec(V) end
     if K == "Transparency" then C.Transparency = V or 0 end
     if K == "Material" then C.Material = tostring(V or "SmoothPlastic") end
     if K == "Shape" then C.Shape = tostring(V or "Block") end
     if K == "Anchored" then C.Anchored = V and true or false end
     if K == "CanCollide" then C.CanCollide = V and true or false end
+    if K == "Massless" then C.Massless = V and true or false end
+    if K == "Mass" then C.Mass = V or 1 end
+    if K == "Density" then C.Density = V or 1 end
+    if K == "Friction" then C.Friction = V or 0.3 end
+    if K == "Elasticity" then C.Elasticity = V or 0 end
 end
 
 Part = {}
@@ -201,8 +229,45 @@ function Part.new()
         Material     = "SmoothPlastic",
         Shape        = "Block",
         CastShadow   = true,
+        AssemblyLinearVelocity  = Vector3.zero,
+        Velocity                = Vector3.zero,
+        AssemblyAngularVelocity = Vector3.zero,
+        RotVelocity             = Vector3.zero,
+        Force                   = Vector3.zero,
+        Impulse                 = Vector3.zero,
+        Massless                = false,
+        Mass                    = nil,
+        Density                 = nil,
+        Friction                = nil,
+        Elasticity              = nil,
+        _NyxPhysicsTouched      = {},
     }, Part)
 end
+
+function Part:GetMass()
+    if self.Mass then return self.Mass end
+    local S = self.Size or Vector3.new(4, 1.2, 2)
+    local Density = self.Density or 0.7
+    return math.max((S.X or 1) * (S.Y or 1) * (S.Z or 1) * Density, 0.001)
+end
+
+function Part:ApplyImpulse(Impulse)
+    Impulse = Impulse or Vector3.zero
+    local Mass = self:GetMass()
+    self.AssemblyLinearVelocity = (self.AssemblyLinearVelocity or self.Velocity or Vector3.zero) + (Impulse * (1 / Mass))
+    self.Impulse = (self.Impulse or Vector3.zero) + Impulse
+    self._NyxPhysicsTouched = self._NyxPhysicsTouched or {}
+    self._NyxPhysicsTouched.AssemblyLinearVelocity = true
+    self._NyxPhysicsTouched.Impulse = true
+end
+
+function Part:ApplyForce(Force)
+    self.Force = (self.Force or Vector3.zero) + (Force or Vector3.zero)
+    self._NyxPhysicsTouched = self._NyxPhysicsTouched or {}
+    self._NyxPhysicsTouched.Force = true
+end
+
+function Part:SetNetworkOwner(_) end
 
 BasePart = Part
 
@@ -217,6 +282,12 @@ function workspace:AddPart(P)
     local Siz = P.Size     or Vector3.new(4, 1.2, 2)
     local Col = P.Color    or Color3.fromRGB(163, 162, 165)
     local CF  = P.CFrame   or CFrame.new(Pos.X, Pos.Y, Pos.Z)
+    local Lin = P.AssemblyLinearVelocity or P.Velocity or Vector3.zero
+    local Ang = P.AssemblyAngularVelocity or P.RotVelocity or Vector3.zero
+    local Force = P.Force or Vector3.zero
+    local Impulse = P.Impulse or Vector3.zero
+    local Touched = P._NyxPhysicsTouched or {}
+    -- { Cmd, Id, Name, Position, Size, Color, CFrame, Anchored, CanCollide, Transparency, Material, Shape }
     local Command = {
         Cmd          = "AddPart",
         Id           = P._id,
@@ -231,6 +302,25 @@ function workspace:AddPart(P)
         Material     = tostring(P.Material or "SmoothPlastic"),
         Shape        = tostring(P.Shape or "Block"),
     }
+    if Touched.AssemblyLinearVelocity or Touched.Velocity or _NyxNonZeroVec(Lin) then
+        Command.AssemblyLinearVelocity = { X = Lin.X or 0, Y = Lin.Y or 0, Z = Lin.Z or 0 }
+        Command.Velocity = { X = Lin.X or 0, Y = Lin.Y or 0, Z = Lin.Z or 0 }
+    end
+    if Touched.AssemblyAngularVelocity or Touched.RotVelocity or _NyxNonZeroVec(Ang) then
+        Command.AssemblyAngularVelocity = { X = Ang.X or 0, Y = Ang.Y or 0, Z = Ang.Z or 0 }
+        Command.RotVelocity = { X = Ang.X or 0, Y = Ang.Y or 0, Z = Ang.Z or 0 }
+    end
+    if Touched.Force or _NyxNonZeroVec(Force) then
+        Command.Force = { X = Force.X or 0, Y = Force.Y or 0, Z = Force.Z or 0 }
+    end
+    if Touched.Impulse or _NyxNonZeroVec(Impulse) then
+        Command.Impulse = { X = Impulse.X or 0, Y = Impulse.Y or 0, Z = Impulse.Z or 0 }
+    end
+    if Touched.Massless or P.Massless then Command.Massless = P.Massless and true or false end
+    if Touched.Mass and P.Mass ~= nil then Command.Mass = P.Mass end
+    if Touched.Density and P.Density ~= nil then Command.Density = P.Density end
+    if Touched.Friction and P.Friction ~= nil then Command.Friction = P.Friction end
+    if Touched.Elasticity and P.Elasticity ~= nil then Command.Elasticity = P.Elasticity end
     _NYX_COMMANDS[#_NYX_COMMANDS + 1] = Command
     P._NyxCommand = Command
     P._NyxReg = true
@@ -327,6 +417,10 @@ do
             __index    = _D,
             __newindex = function(_, K, V)
                 rawset(_D, K, V)
+                if _NyxTouchesPhysics(K) then
+                    _D._NyxPhysicsTouched = _D._NyxPhysicsTouched or {}
+                    _D._NyxPhysicsTouched[K] = true
+                end
                 if K == "Parent" and V == workspace and not _D._NyxReg then
                     _D._NyxReg = true
                     workspace:AddPart(_D)

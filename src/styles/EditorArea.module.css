@@ -202,13 +202,9 @@
     background: var(--surf);
 }
 
-.Overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 14px 20px;
+.Overlay,
+.TextArea,
+.SearchOverlay {
     font-family: 'JetBrains Mono', monospace;
     font-size: var(--editor-font-size, 11.5px);
     line-height: var(--editor-line-height, 1.78);
@@ -217,6 +213,22 @@
     overflow-wrap: normal;
     tab-size: 4;
     -moz-tab-size: 4;
+    letter-spacing: 0;
+    font-weight: 400;
+    font-style: normal;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "calt" 0;
+    font-optical-sizing: none;
+    text-transform: none;
+}
+
+.Overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 14px 20px;
     overflow: hidden;
     pointer-events: none;
     z-index: 0;
@@ -281,16 +293,38 @@
     overflow: hidden;
     overflow-y: scroll;
     scrollbar-width: none;
+    position: relative;
 }
 
 .LineNumbers::-webkit-scrollbar {
     display: none;
 }
 
+.LineNumberCursor {
+    position: absolute;
+    top: var(--line-number-cursor-top, 14px);
+    right: 5px;
+    width: 34px;
+    height: var(--line-number-cursor-height, calc(var(--editor-line-height, 1.78) * var(--editor-font-size, 11.5px)));
+    border-radius: 5px;
+    background: rgba(212,176,204,0.075);
+    box-shadow:
+        inset 0 0 0 1px rgba(212,176,204,0.09),
+        0 0 10px rgba(212,176,204,0.05);
+    pointer-events: none;
+    z-index: 0;
+    transition:
+        top var(--td-fast) var(--spring),
+        height var(--td-fast) var(--spring),
+        opacity var(--tf);
+}
+
 .LineNum {
     display: block;
     padding-right: 10px;
     cursor: pointer;
+    position: relative;
+    z-index: 1;
     transition: color var(--tf), transform var(--td) var(--spring);
 }
 
@@ -305,7 +339,7 @@
 }
 
 .ActiveLine {
-    color: var(--txt2);
+    color: var(--acc);
     font-weight: 500;
 }
 
@@ -318,9 +352,6 @@
     width: 100%;
     height: 100%;
     padding: 14px 20px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: var(--editor-font-size, 11.5px);
-    line-height: var(--editor-line-height, 1.78);
     background: transparent;
     color: transparent;
     caret-color: var(--txt);
@@ -328,11 +359,6 @@
     outline: none;
     resize: none;
     z-index: 1;
-    white-space: var(--editor-whitespace, pre);
-    word-wrap: normal;
-    overflow-wrap: normal;
-    tab-size: 4;
-    -moz-tab-size: 4;
     overflow-y: auto;
     overflow-x: var(--editor-overflow-x, auto);
     transition: box-shadow var(--td) var(--spring);
@@ -354,14 +380,6 @@
     right: 0;
     bottom: 0;
     padding: 14px 20px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: var(--editor-font-size, 11.5px);
-    line-height: var(--editor-line-height, 1.78);
-    white-space: var(--editor-whitespace, pre);
-    word-wrap: normal;
-    overflow-wrap: normal;
-    tab-size: 4;
-    -moz-tab-size: 4;
     overflow: hidden;
     pointer-events: none;
     z-index: 0;

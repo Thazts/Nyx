@@ -27,6 +27,7 @@ pub struct CameraInput {
 pub struct SceneState {
     pub commands:          Vec<serde_json::Value>,
     pub profile:           String,
+    pub physics:           physics::PhysicsWorld,
     pub bounds:            (i32, i32, u32, u32),
     pub visible:           bool,
     pub dirty:             bool,
@@ -43,6 +44,7 @@ impl Default for SceneState {
         Self {
             commands: Vec::new(),
             profile: "roblox".to_string(),
+            physics: physics::PhysicsWorld::default(),
             bounds: (0, 0, 1, 1),
             visible: false,
             dirty: false,
@@ -110,8 +112,13 @@ fn render_loop(
     let format = render.config.format;
     let mut scene_renderer = SceneRenderer::new(&render.device, format, 1, 1);
     let mut sky    = wgpu::Color { r: 0.39, g: 0.58, b: 0.93, a: 1.0 };
+    let mut last_frame = Instant::now();
 
     loop {
+        let now = Instant::now();
+        let frame_dt = now.duration_since(last_frame).as_secs_f32();
+        last_frame = now;
+
         let (orbit_dx, orbit_dy, pan_dx, pan_dy, zoom, forward, right, up) = {
             let mut ci = camera_input.lock().unwrap();
             let vals = (ci.orbit_dx, ci.orbit_dy, ci.pan_dx, ci.pan_dy, ci.zoom,
@@ -132,6 +139,14 @@ fn render_loop(
             s.camera.pan(pan_dx, pan_dy);
             s.camera.zoom(zoom);
             s.camera.wasd_move(forward, right, up);
+
+            if s.visible {
+                let mut physics = std::mem::take(&mut s.physics);
+                if physics.StepCommands(&mut s.commands, frame_dt) {
+                    s.dirty = true;
+                }
+                s.physics = physics;
+            }
 
             let dirty = s.dirty;
             if dirty { s.dirty = false; }

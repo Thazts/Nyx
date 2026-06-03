@@ -34,7 +34,6 @@ export const HighlightOverlay: React.FC<HighlightOverlayProps> = ({
                                 key={I}
                                 style={{
                                     color: Colours[T.Type],
-                                    fontStyle: T.Type === "Comment" ? "italic" : undefined,
                                 }}
                             >
                                 {T.Value}

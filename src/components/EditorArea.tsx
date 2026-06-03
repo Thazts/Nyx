@@ -155,6 +155,8 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     const LhRef             = useRef(ComputeLH());
     const FileContentRef    = useRef(FileContent);
     const CursorLineRef     = useRef(1);
+    const OnCursorChangeRef = useRef(OnCursorChange);
+    const SearchJumpRef     = useRef({ IsOpen: false, Term: "" });
 
     const Lines    = useMemo(() => FileContent.split("\n"), [FileContent]);
     const Language = useMemo(() => DetectLanguage(FileName), [FileName]);
@@ -164,6 +166,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     const [LH, SetLH] = useState(ComputeLH);
     LhRef.current = LH;
     CursorLineRef.current = CursorLine;
+    OnCursorChangeRef.current = OnCursorChange;
     const ViewH    = TextAreaRef.current?.clientHeight ?? 600;
     const VisStart = Math.max(0, Math.floor((ScrollTopPx - 14) / LH) - OVERSCAN);
     const VisEnd   = Math.max(VisStart, Math.min(Lines.length, Math.ceil((ScrollTopPx - 14 + ViewH) / LH) + OVERSCAN + 1));
@@ -323,8 +326,15 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     }, []);
 
     useEffect(() => {
+        const ShouldJump =
+            IsSearchOpen &&
+            SearchTerm.length > 0 &&
+            Matches.length > 0 &&
+            (!SearchJumpRef.current.IsOpen || SearchJumpRef.current.Term !== SearchTerm);
+
+        SearchJumpRef.current = { IsOpen: IsSearchOpen, Term: SearchTerm };
         SetCurrentMatchIndex(0);
-        if (!IsSearchOpen || Matches.length === 0 || !SearchTerm || !TextAreaRef.current) return;
+        if (!ShouldJump || !TextAreaRef.current) return;
         const { Start, Len } = Matches[0];
         ScrollToOffset(Start);
         TextAreaRef.current.setSelectionRange(Start, Start + Len);
@@ -339,12 +349,14 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         SetCursorCol(1);
         SetScrollTopPx(0);
         if (TextAreaRef.current) {
+            TextAreaRef.current.focus();
+            TextAreaRef.current.setSelectionRange(0, 0);
             TextAreaRef.current.scrollTop = 0;
             TextAreaRef.current.scrollLeft = 0;
         }
         SyncScrollPanels(0, 0);
-        if (OnCursorChange) OnCursorChange(1, 1);
-    }, [ActiveFile, OnCursorChange, SyncScrollPanels]);
+        OnCursorChangeRef.current?.(1, 1);
+    }, [ActiveFile, SyncScrollPanels]);
 
     useEffect(() => {
         const NewIndex = OpenTabs.findIndex(T => T.Path === ActiveFile);
@@ -368,12 +380,18 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         }
     });
 
-    // Push externally-reloaded content into the uncontrolled textarea
+    // Keep the uncontrolled textarea aligned when content arrives after the
+    // active document changes, such as a newly opened file finishing its read.
     useLayoutEffect(() => {
-        if (ExternalContentVersion !== undefined && TextAreaRef.current) {
-            TextAreaRef.current.value = FileContent;
-        }
-    }, [ExternalContentVersion]);
+        const Textarea = TextAreaRef.current;
+        if (!Textarea || Textarea.value === FileContent) return;
+
+        const Start = Math.min(Textarea.selectionStart, FileContent.length);
+        const End   = Math.min(Textarea.selectionEnd,   FileContent.length);
+        Textarea.value = FileContent;
+        Textarea.setSelectionRange(Start, End);
+        UpdateCursorFromTextarea(Textarea);
+    }, [ActiveFile, FileContent, ExternalContentVersion]);
 
     // Cursor position via O(log n) binary search on LineOffsets
     function UpdateCursorFromTextarea(Textarea: HTMLTextAreaElement) {
@@ -398,19 +416,19 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         }
         SetCursorLine(LineNum);
         SetCursorCol(ColNum);
-        if (OnCursorChange) OnCursorChange(LineNum, ColNum);
+        OnCursorChangeRef.current?.(LineNum, ColNum);
     }
 
     const UpdateCursor = useCallback(() => {
         const Textarea = TextAreaRef.current;
         if (!Textarea) return;
         UpdateCursorFromTextarea(Textarea);
-    }, [OnCursorChange]);
+    }, []);
 
     const HandleTextAreaChange = useCallback((E: React.ChangeEvent<HTMLTextAreaElement>) => {
         OnContentChange(E.target.value);
         UpdateCursorFromTextarea(E.target);
-    }, [OnContentChange, OnCursorChange]);
+    }, [OnContentChange]);
 
     const HandleKeyDown = useCallback((E: React.KeyboardEvent<HTMLTextAreaElement>) => {
         const Textarea = TextAreaRef.current;
@@ -733,7 +751,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     const HandleMouseUp = useCallback(() => {
         const Textarea = TextAreaRef.current;
         if (Textarea) UpdateCursorFromTextarea(Textarea);
-    }, [OnCursorChange]);
+    }, []);
 
     const HandleTextAreaMouseDown = useCallback(() => {
         // Let browser handle clicks natively
@@ -949,7 +967,15 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                         } as React.CSSProperties}
                     >
                         <div className={styles.CurrentLineHighlight} />
-                        <div className={styles.LineNumbers} ref={LineNumbersRef}>
+                        <div
+                            className={styles.LineNumbers}
+                            ref={LineNumbersRef}
+                            style={{
+                                '--line-number-cursor-top': `${14 + (CursorLine - 1) * LH}px`,
+                                '--line-number-cursor-height': `${LH}px`,
+                            } as React.CSSProperties}
+                        >
+                            <div className={styles.LineNumberCursor} aria-hidden />
                             <div style={{ height: `${VisStart * LH}px` }} aria-hidden />
                             {Lines.slice(VisStart, VisEnd).map((_, I) => (
                                 <div
@@ -984,6 +1010,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                                 onBlur={HandleBlur}
                                 onScroll={HandleTextAreaScroll}
                                 spellCheck={false}
+                                wrap="off"
                             />
                             {IsSearchOpen && SearchHighlights && (
                                 <div className={styles.SearchOverlay} ref={SearchOverlayRef} aria-hidden>

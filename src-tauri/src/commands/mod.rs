@@ -11,6 +11,8 @@ use sysinfo::System;
 use crate::renderer::{NyxRenderer, window as nyx_window};
 
 const ROBLOX_SHIM: &str = include_str!("../../../nyx_runtime/roblox/init.lua");
+const UNITY_SHIM: &str = include_str!("../../../nyx_runtime/unity/init.cs");
+const UNREAL_SHIM: &str = include_str!("../../../nyx_runtime/unreal/init.cpp");
 
 static SYS_MONITOR: OnceLock<Mutex<System>> = OnceLock::new();
 
@@ -328,14 +330,19 @@ pub fn run_live_scene(
 }
 
 fn run_scene_at_time(path: String, profile: String, elapsed: Option<f64>) -> Result<RunSceneResult, String> {
-    let shim = match profile.as_str() {
-        "roblox" => ROBLOX_SHIM,
-        other    => return Err(format!("Unknown engine profile: '{}'", other)),
-    };
-
+    let profile = resolve_scene_profile(&path, &profile);
     let user_code = fs::read_to_string(&path)
         .map_err(|e| format!("Cannot read scene file: {}", e))?;
 
+    match profile.as_str() {
+        "roblox" => run_lua_scene_at_time(&path, &user_code, elapsed),
+        "unity"  => run_embedded_scene_commands(&path, &user_code, "Unity C# shim", UNITY_SHIM),
+        "unreal" => run_embedded_scene_commands(&path, &user_code, "Unreal C++ shim", UNREAL_SHIM),
+        other    => Err(format!("Unknown engine profile: '{}'", other)),
+    }
+}
+
+fn run_lua_scene_at_time(path: &str, user_code: &str, elapsed: Option<f64>) -> Result<RunSceneResult, String> {
     let lua      = Lua::new();
     let captured = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink     = Arc::clone(&captured);
@@ -350,11 +357,11 @@ fn run_scene_at_time(path: String, profile: String, elapsed: Option<f64>) -> Res
         lua.globals().set("_NYX_LIVE_TIME", elapsed).map_err(|e| e.to_string())?;
     }
 
-    lua.load(shim).exec()
+    lua.load(ROBLOX_SHIM).exec()
         .map_err(|e| format!("Runtime shim error: {}", e))?;
 
     let mut errors = Vec::new();
-    if let Err(e) = lua.load(&user_code).exec() {
+    if let Err(e) = lua.load(user_code).exec() {
         errors.push(e.to_string());
     }
     if let Some(elapsed) = elapsed {
@@ -372,12 +379,111 @@ fn run_scene_at_time(path: String, profile: String, elapsed: Option<f64>) -> Res
         Ok(cmds) => (cmds, None),
         Err(e)   => (vec![], Some(e)),
     };
-    let terminal = captured.lock().unwrap().clone();
     if let Some(e) = cmd_err {
         errors.push(format!("_NYX_COMMANDS read error: {}", e));
     }
 
+    let mut terminal = captured.lock().unwrap().clone();
+    if terminal.is_empty() {
+        terminal.push(format!("runtime: Roblox Luau shim ({})", path));
+    }
+
     Ok(RunSceneResult { commands, terminal, errors, skipped: false })
+}
+
+fn run_embedded_scene_commands(
+    path: &str,
+    user_code: &str,
+    shim_label: &str,
+    shim_source: &str,
+) -> Result<RunSceneResult, String> {
+    let json_text = extract_nyx_scene_json(user_code)
+        .map_err(|e| format!("{}: {}", path, e))?;
+    let value: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| format!("{}: invalid @nyx-scene JSON: {}", path, e))?;
+    let commands = match value {
+        serde_json::Value::Array(items) => items,
+        other => vec![other],
+    };
+
+    Ok(RunSceneResult {
+        commands,
+        terminal: vec![
+            format!("runtime: {}", shim_label),
+            format!("shim bytes: {}", shim_source.len()),
+            "@nyx-scene command block loaded".to_string(),
+        ],
+        errors: Vec::new(),
+        skipped: false,
+    })
+}
+
+fn resolve_scene_profile(path: &str, requested: &str) -> String {
+    let requested = requested.trim().to_ascii_lowercase();
+    if !requested.is_empty() && requested != "auto" {
+        return requested;
+    }
+    match std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "cs" => "unity".to_string(),
+        "cpp" | "cc" | "cxx" | "h" | "hpp" => "unreal".to_string(),
+        _ => "roblox".to_string(),
+    }
+}
+
+fn extract_nyx_scene_json(source: &str) -> Result<&str, String> {
+    let marker = "@nyx-scene";
+    let marker_pos = source.find(marker)
+        .ok_or_else(|| "missing @nyx-scene command block".to_string())?;
+    let tail = &source[marker_pos + marker.len()..];
+    let start = tail.find(|ch| ch == '[' || ch == '{')
+        .ok_or_else(|| "@nyx-scene block does not contain JSON".to_string())?;
+    let end = json_block_end(tail, start)?;
+    Ok(&tail[start..end])
+}
+
+fn json_block_end(source: &str, start: usize) -> Result<usize, String> {
+    let open = source[start..].chars().next()
+        .ok_or_else(|| "@nyx-scene block is empty".to_string())?;
+    let close = match open {
+        '[' => ']',
+        '{' => '}',
+        _ => return Err("@nyx-scene JSON must start with '[' or '{'".to_string()),
+    };
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escape = false;
+
+    for (offset, ch) in source[start..].char_indices() {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if ch == '"' {
+            in_string = true;
+        } else if ch == open {
+            depth += 1;
+        } else if ch == close {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Ok(start + offset + ch.len_utf8());
+            }
+        }
+    }
+
+    Err("@nyx-scene JSON block is not closed".to_string())
 }
 
 fn read_nyx_commands(lua: &Lua) -> Result<Vec<serde_json::Value>, String> {
@@ -749,6 +855,10 @@ pub fn renderer_gizmo_drag(
         break;
     }
 
+    let mut physics = std::mem::take(&mut s.physics);
+    let profile = s.profile.clone();
+    physics.Reconcile(&s.commands, &profile);
+    s.physics = physics;
     s.dirty = true;
     Ok(Some([new_pos.x, new_pos.y, new_pos.z]))
 }
@@ -826,8 +936,11 @@ pub fn renderer_load_scene(
 ) -> Result<(), String> {
     let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
+    let mut physics = std::mem::take(&mut s.physics);
+    physics.Reset(&commands, &profile);
     s.commands = commands;
     s.profile  = profile;
+    s.physics  = physics;
     s.dirty    = true;
     Ok(())
 }
@@ -843,8 +956,11 @@ pub fn renderer_load_live_scene(
     if s.last_interaction.elapsed() < std::time::Duration::from_millis(140) {
         return Ok(());
     }
+    let mut physics = std::mem::take(&mut s.physics);
+    physics.Reconcile(&commands, &profile);
     s.commands = commands;
     s.profile  = profile;
+    s.physics  = physics;
     s.skip_camera_meta = true;
     s.dirty    = true;
     Ok(())
@@ -983,6 +1099,10 @@ pub fn renderer_set_part_properties(
         }
         break;
     }
+    let mut physics = std::mem::take(&mut s.physics);
+    let profile = s.profile.clone();
+    physics.Reconcile(&s.commands, &profile);
+    s.physics = physics;
     s.dirty = true;
     Ok(())
 }
@@ -1093,6 +1213,10 @@ pub fn renderer_rotate_drag(
         result = Some([rx, ry, rz]);
         break;
     }
+    let mut physics = std::mem::take(&mut s.physics);
+    let profile = s.profile.clone();
+    physics.Reconcile(&s.commands, &profile);
+    s.physics = physics;
     s.dirty = true;
     Ok(result)
 }
@@ -1167,6 +1291,10 @@ pub fn renderer_scale_drag(
         }
         break;
     }
+    let mut physics = std::mem::take(&mut s.physics);
+    let profile = s.profile.clone();
+    physics.Reconcile(&s.commands, &profile);
+    s.physics = physics;
     s.dirty = true;
     Ok(result)
 }
@@ -1182,6 +1310,10 @@ pub fn renderer_undo(renderer: State<'_, RendererState>) -> Result<(), String> {
         u.redo_stack.push(s.commands.clone());
         s.commands = prev;
         s.selected = None;
+        let mut physics = std::mem::take(&mut s.physics);
+        let profile = s.profile.clone();
+        physics.Reconcile(&s.commands, &profile);
+        s.physics = physics;
         s.dirty    = true;
     }
     Ok(())
@@ -1196,6 +1328,10 @@ pub fn renderer_redo(renderer: State<'_, RendererState>) -> Result<(), String> {
         u.undo_stack.push(s.commands.clone());
         s.commands = next;
         s.selected = None;
+        let mut physics = std::mem::take(&mut s.physics);
+        let profile = s.profile.clone();
+        physics.Reconcile(&s.commands, &profile);
+        s.physics = physics;
         s.dirty    = true;
     }
     Ok(())
@@ -1221,6 +1357,10 @@ pub fn renderer_delete_part(
     if s.selected.as_deref() == Some(id.as_str()) {
         s.selected = None;
     }
+    let mut physics = std::mem::take(&mut s.physics);
+    let profile = s.profile.clone();
+    physics.Reconcile(&s.commands, &profile);
+    s.physics = physics;
     s.dirty = true;
     Ok(())
 }
