@@ -111,16 +111,16 @@ impl OrbitalCamera {
         }
     }
 
-    pub fn GetRay(&self, ndc_x: f32, ndc_y: f32) -> (Vec3, Vec3) {
+    pub fn GetRay(&self, NdcX: f32, NdcY: f32) -> (Vec3, Vec3) {
         let eye = self.eye();
         let view = Mat4::look_at_rh(eye, self.target, Vec3::Y);
         let proj = Mat4::perspective_rh(self.fov_y, self.aspect, self.near, self.far);
-        let inv_vp = (proj * view).inverse();
+        let InvVp = (proj * view).inverse();
 
-        let near_pt = inv_vp.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
-        let far_pt = inv_vp.project_point3(Vec3::new(ndc_x, ndc_y, 1.0));
-        let dir = (far_pt - near_pt).normalize();
+        let NearPt = InvVp.project_point3(Vec3::new(NdcX, NdcY, 0.0));
+        let FarPt = InvVp.project_point3(Vec3::new(NdcX, NdcY, 1.0));
+        let dir = (FarPt - NearPt).normalize();
 
-        (near_pt, dir)
+        (NearPt, dir)
     }
 }

@@ -46,6 +46,7 @@ const AiRegistryKey = {
     AiPendingApproval: null,   // ToolCall | null
     AiLastChange:      null,   // AiChangeEvent | null
     AiChangedFiles:    [],     // string[]
+    AiTaskSlice:       null,   // TaskSlice | null
 } as const;
 
 const SettingsRegistryKey = {
@@ -57,7 +58,7 @@ const SettingsRegistryKey = {
 const APP_KEYS      = ["AppReady", "WorkspacePath", "RecentPaths", "ActiveFile", "AppStatus", "IsLoading", "IsRunning"] as const;
 const EDITOR_KEYS   = ["TerminalOutput", "RunOutput", "OpenTabs", "FileTree", "FileContent", "DiskContent", "ActiveTabModified", "CollapsedFolders", "SelectedEntry", "SelectedMetadata", "CursorLine", "CursorCol", "SavedFlash", "ExternalContentVersion", "GitBranch", "DisplayLanguage"] as const;
 const RENDERER_KEYS = ["GizmoMode", "SelectedPartId", "ViewportActive", "ViewportPath", "ViewportProfile", "LastViewportInteraction"] as const;
-const AI_KEYS       = ["AiProvider", "AiMode", "AiActivity", "AiStreaming", "AiPendingApproval", "AiLastChange", "AiChangedFiles"] as const;
+const AI_KEYS       = ["AiProvider", "AiMode", "AiActivity", "AiStreaming", "AiPendingApproval", "AiLastChange", "AiChangedFiles", "AiTaskSlice"] as const;
 const SETTINGS_KEYS = ["AnthropicKeySet", "DeepseekKeySet", "ObsidianVaultPath"] as const;
 
 const _keyMap: Record<string, Record<string, unknown>> = {};

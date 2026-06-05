@@ -131,6 +131,234 @@
     white-space: nowrap;
 }
 
+.TaskHeader {
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding: 8px 14px 9px 14px;
+    background: rgba(255,255,255,0.018);
+    flex-shrink: 0;
+}
+
+.TaskHeaderTitle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 7px;
+    color: var(--txt3);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.TaskHeaderTitle span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    text-align: right;
+}
+
+.TaskReason {
+    margin: -2px 0 7px 0;
+    padding: 5px 7px;
+    border-left: 2px solid rgba(212,184,122,0.42);
+    background: rgba(212,184,122,0.055);
+    color: var(--txt2);
+    font-size: 9.5px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.TaskStepGrid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.TaskStep {
+    min-width: 0;
+    min-height: 34px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--brd);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.022);
+    padding: 5px 7px;
+    color: var(--txt3);
+    overflow: hidden;
+    transition: border-color var(--tf), background var(--tf), color var(--tf), box-shadow var(--tf);
+}
+
+.TaskStepMark {
+    width: 18px;
+    height: 18px;
+    position: relative;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.11);
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.025);
+    transform-origin: 50% 50%;
+    transition:
+        border-color 220ms var(--smooth-out),
+        background 220ms var(--smooth-out),
+        border-radius 420ms var(--spring),
+        transform 420ms var(--spring),
+        box-shadow 220ms var(--smooth-out);
+}
+
+.TaskStepMark::after {
+    content: "";
+    position: absolute;
+    inset: 5px;
+    border-radius: inherit;
+    background: currentColor;
+    opacity: 0.22;
+    transform: scale(0.72);
+    transition:
+        opacity 220ms var(--smooth-out),
+        transform 420ms var(--spring),
+        border-radius 420ms var(--spring);
+}
+
+.TaskStepLabel {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 9.5px;
+    line-height: 1.25;
+}
+
+.TaskStepActive {
+    border-color: rgba(240,198,223,0.62);
+    background:
+        linear-gradient(180deg, rgba(212,176,204,0.14), rgba(212,176,204,0.075)),
+        rgba(255,255,255,0.025);
+    color: var(--txt);
+    box-shadow:
+        0 0 0 1px rgba(212,176,204,0.12),
+        0 8px 22px rgba(212,176,204,0.13),
+        inset 0 1px 0 rgba(255,255,255,0.055);
+}
+
+.TaskStepActive::before {
+    content: "";
+    position: absolute;
+    inset: -40% auto -40% -55%;
+    width: 42%;
+    transform: skewX(-18deg);
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255,255,255,0.16),
+        transparent
+    );
+    animation: TaskStepShine 11s ease-in-out infinite;
+    pointer-events: none;
+}
+
+.TaskStepActive .TaskStepMark {
+    border-color: rgba(240,198,223,0.68);
+    background: rgba(212,176,204,0.13);
+    color: #f0c6df;
+    border-radius: 42% 58% 48% 52%;
+    transform: scaleX(1.12) rotate(-8deg);
+    box-shadow:
+        0 0 0 3px rgba(212,176,204,0.08),
+        0 0 18px rgba(212,176,204,0.16);
+    animation: TaskStepMarkFluid 5.8s var(--smooth-out) infinite;
+}
+
+.TaskStepActive .TaskStepMark::after {
+    opacity: 0.42;
+    transform: scaleX(1.15) scaleY(0.68) rotate(16deg);
+}
+
+.TaskStepActive .TaskStepLabel {
+    font-weight: 700;
+}
+
+.TaskStepDone {
+    border-color: rgba(100,220,130,0.24);
+    background: rgba(100,220,130,0.065);
+    color: #8ee6a4;
+}
+
+.TaskStepDone .TaskStepMark {
+    border-color: rgba(100,220,130,0.36);
+    color: #8ee6a4;
+    background: rgba(100,220,130,0.12);
+    border-radius: 5px;
+    transform: rotate(45deg);
+    animation: TaskStepDoneSettle 620ms var(--spring) both;
+}
+
+.TaskStepDone .TaskStepMark::after {
+    opacity: 0.55;
+    inset: 5px;
+    border-radius: 3px;
+    transform: scale(0.82);
+}
+
+.TaskStepPending {
+    opacity: 0.72;
+}
+
+@keyframes TaskStepShine {
+    0%, 68% {
+        left: -55%;
+        opacity: 0;
+    }
+    74% {
+        opacity: 0.75;
+    }
+    88% {
+        left: 125%;
+        opacity: 0;
+    }
+    100% {
+        left: 125%;
+        opacity: 0;
+    }
+}
+
+@keyframes TaskStepMarkFluid {
+    0%, 100% {
+        border-radius: 42% 58% 48% 52%;
+        transform: scaleX(1.12) scaleY(0.96) rotate(-8deg);
+    }
+    35% {
+        border-radius: 56% 44% 42% 58%;
+        transform: scaleX(0.9) scaleY(1.18) rotate(10deg);
+    }
+    68% {
+        border-radius: 36% 64% 62% 38%;
+        transform: scaleX(1.2) scaleY(0.88) rotate(4deg);
+    }
+}
+
+@keyframes TaskStepDoneSettle {
+    0% {
+        border-radius: 44% 56% 52% 48%;
+        transform: scaleX(1.28) scaleY(0.72) rotate(-10deg);
+    }
+    42% {
+        border-radius: 36% 64% 42% 58%;
+        transform: scaleX(0.76) scaleY(1.28) rotate(28deg);
+    }
+    72% {
+        border-radius: 6px;
+        transform: scale(1.08) rotate(45deg);
+    }
+    100% {
+        border-radius: 5px;
+        transform: scale(1) rotate(45deg);
+    }
+}
+
 @keyframes ActivityPulse {
     0%, 100% {
         opacity: 0.45;
@@ -637,8 +865,8 @@
 
 .QuestionCard {
     border-radius: 7px;
-    border: 1px solid rgba(138,199,232,0.28);
-    background: rgba(138,199,232,0.055);
+    border: 1px solid rgba(212,176,204,0.28);
+    background: rgba(212,176,204,0.055);
     padding: 10px 12px;
     color: var(--txt2);
     animation: ToolIn 0.18s var(--smooth-out) both;
@@ -659,7 +887,7 @@
 }
 
 .QuestionStatus {
-    color: #8ac7e8;
+    color: var(--acc);
     font-size: 9px;
     font-weight: 700;
     text-transform: uppercase;
@@ -717,14 +945,14 @@
 }
 
 .QuestionOption:hover:not(:disabled) {
-    background: rgba(138,199,232,0.08);
-    border-color: rgba(138,199,232,0.22);
+    background: rgba(212,176,204,0.08);
+    border-color: rgba(212,176,204,0.22);
 }
 
 .QuestionOptionActive {
-    border-color: rgba(138,199,232,0.42);
-    background: rgba(138,199,232,0.13);
-    color: #a8daf4;
+    border-color: rgba(212,176,204,0.42);
+    background: rgba(212,176,204,0.13);
+    color: var(--acc);
 }
 
 .QuestionOption:disabled {
@@ -749,16 +977,16 @@
 }
 
 .QuestionChatInput:focus {
-    border-color: rgba(138,199,232,0.32);
+    border-color: rgba(212,176,204,0.32);
 }
 
 .QuestionSubmit {
     margin-top: 10px;
     padding: 5px 12px;
     border-radius: 5px;
-    border: 1px solid rgba(138,199,232,0.28);
-    background: rgba(138,199,232,0.09);
-    color: #8ac7e8;
+    border: 1px solid rgba(212,176,204,0.28);
+    background: rgba(212,176,204,0.09);
+    color: var(--acc);
     font-family: inherit;
     font-size: 10px;
     font-weight: 700;
@@ -767,7 +995,7 @@
 }
 
 .QuestionSubmit:hover:not(:disabled) {
-    background: rgba(138,199,232,0.16);
+    background: rgba(212,176,204,0.16);
 }
 
 .QuestionSubmit:active:not(:disabled) {
@@ -850,3 +1078,9 @@
 
 .DenyBtn:hover  { color: var(--txt2); border-color: rgba(255,255,255,0.12); }
 .DenyBtn:active { transform: scale(0.94); }
+
+@media (max-width: 760px) {
+    .TaskStepGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}

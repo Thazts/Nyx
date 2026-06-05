@@ -42,7 +42,9 @@ pub fn ActivityForTool(tool: &str) -> AgentActivityEvent {
         }
         "write_file" | "edit_file" | "write_obsidian" => ("editing", "Preparing changes"),
         "run_command" | "run_powershell" => ("running", "Running command"),
-        "create_memory" | "list_memories" | "read_memory" => ("memory", "Using memory"),
+        "create_memory" | "search_memories" | "list_memories" | "read_memory" => {
+            ("memory", "Using memory")
+        }
         "read_obsidian" | "search_obsidian" => ("notes", "Using notes"),
         "ask_user" => ("waiting_question", "Waiting for answer"),
         _ => ("working", "Working"),
@@ -62,28 +64,28 @@ pub fn SimpleActivity(kind: &str, label: &str) -> AgentActivityEvent {
 }
 
 pub fn BuildChangePreview(before: &str, after: &str) -> AiChangePreview {
-    let before_lines: Vec<&str> = before.lines().collect();
-    let after_lines: Vec<&str> = after.lines().collect();
+    let BeforeLines: Vec<&str> = before.lines().collect();
+    let AfterLines: Vec<&str> = after.lines().collect();
     let mut start = 0usize;
-    while start < before_lines.len()
-        && start < after_lines.len()
-        && before_lines[start] == after_lines[start]
+    while start < BeforeLines.len()
+        && start < AfterLines.len()
+        && BeforeLines[start] == AfterLines[start]
     {
         start += 1;
     }
 
-    let mut end_before = before_lines.len();
-    let mut end_after = after_lines.len();
-    while end_before > start
-        && end_after > start
-        && before_lines[end_before - 1] == after_lines[end_after - 1]
+    let mut EndBefore = BeforeLines.len();
+    let mut EndAfter = AfterLines.len();
+    while EndBefore > start
+        && EndAfter > start
+        && BeforeLines[EndBefore - 1] == AfterLines[EndAfter - 1]
     {
-        end_before -= 1;
-        end_after -= 1;
+        EndBefore -= 1;
+        EndAfter -= 1;
     }
 
-    let removed = end_before.saturating_sub(start);
-    let added = end_after.saturating_sub(start);
+    let removed = EndBefore.saturating_sub(start);
+    let added = EndAfter.saturating_sub(start);
     let mut lines = Vec::new();
     lines.push(format!(
         "change: line {} | -{} +{}",
@@ -92,10 +94,10 @@ pub fn BuildChangePreview(before: &str, after: &str) -> AiChangePreview {
         added
     ));
 
-    for line in before_lines.iter().skip(start).take(removed.min(18)) {
+    for line in BeforeLines.iter().skip(start).take(removed.min(18)) {
         lines.push(format!("- {}", line));
     }
-    for line in after_lines.iter().skip(start).take(added.min(18)) {
+    for line in AfterLines.iter().skip(start).take(added.min(18)) {
         lines.push(format!("+ {}", line));
     }
     if removed > 18 || added > 18 {

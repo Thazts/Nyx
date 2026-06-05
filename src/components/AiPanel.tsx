@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AiService, AiMessage, AiMode, AiProvider, AiQuestionRequest } from "../services/AiService";
+import { StateManager } from "../state/StateManager";
+import { useStateKey } from "../state/useStateKey";
 import styles from "../styles/AiPanel.module.css";
 
-type MsgItem      = { Kind: "message";   Role: "user" | "assistant"; Content: string };
+type MsgItem      = { Kind: "message";   Id: string; Role: "user" | "assistant"; Content: string };
 type ToolItem     = { Kind: "tool_call"; Id: string; Name: string; Input: Record<string, unknown>; Status: "running" | "done" | "error"; Result?: string };
 type ApprovalItem = { Kind: "approval";  Id: string; Name: string; Input: Record<string, unknown> };
 type ChangeItem   = { Kind: "change"; Change: AiChangeEvent };
 type QuestionItem = { Kind: "question"; Request: AiQuestionRequest; Status: "waiting" | "answered"; Result?: string };
 type StreamItem   = MsgItem | ToolItem | ApprovalItem | ChangeItem | QuestionItem;
+type TaskStatus   = "pending" | "active" | "done";
+type TaskStep     = { Label: string; Status: TaskStatus };
+type TaskSliceStatus = "active" | "replanned" | "blocked" | "complete";
+type TaskSlice = { Id: string; Status: TaskSliceStatus; Reason?: string; Steps: TaskStep[] };
 
 type QuestionDraft = {
     Choices: Record<string, string>;
@@ -76,6 +82,7 @@ function ToolActionLabel(name: string, input: Record<string, unknown>): string {
         case "run_command": return Command ? `Running cmd: ${Command}` : "Running command";
         case "run_powershell": return Command ? `Running PowerShell: ${Command}` : "Running PowerShell";
         case "create_memory": return Query ? `Writing memory ${String(Query)}` : "Writing memory";
+        case "search_memories": return Query ? `Searching memories for ${String(Query)}` : "Searching memories";
         case "list_memories": return "Listing memories";
         case "read_memory": return Query ? `Reading memory ${String(Query)}` : "Reading memory";
         case "read_obsidian": return Path ? `Reading note ${Path}` : "Reading note";
@@ -121,6 +128,22 @@ const HISTORY_TEXT_LIMIT = 80000;
 const HISTORY_TOOL_RESULT_LIMIT = 2000;
 const CHAT_ABOUT_THIS = "Chat about this";
 const AI_DISCLOSURE_KEY = "nyx_ai_disclosure_ack_v1";
+const AGENTIC_UI_INSTRUCTION = [
+    "[Nyx UI coordination]",
+    "Create one plan for the user's full request, then execute it in slices of four consecutive plan steps.",
+    "Report checklist state only with this exact protocol:",
+    "[NYX_SLICE id=1 status=active]",
+    "- [-] First step label",
+    "- [ ] Second step label",
+    "- [ ] Third step label",
+    "- [ ] Fourth step label",
+    "[/NYX_SLICE]",
+    "Valid status values are active, complete, blocked, and replanned.",
+    "For blocked or replanned, include a quoted reason attribute, for example status=replanned reason=\"Discovery changed the next useful action\".",
+    "For the same slice id, keep labels stable and update only checkbox states unless status=replanned has a reason.",
+    "Do not replace card 1 with the next task. Move the active marker to card 2, 3, then 4. Start a new slice id only after the previous four are complete, blocked, or explicitly replanned.",
+    "After completing each meaningful step, call create_memory. The UI uses that checkpoint to mark the active card done and move to the next card.",
+].join("\n");
 
 function HasAcknowledgedAiDisclosure(): boolean {
     try {
@@ -135,6 +158,193 @@ function AcknowledgeAiDisclosure(): void {
         localStorage.setItem(AI_DISCLOSURE_KEY, "yes");
     } catch {
     }
+}
+
+function CleanTaskLabel(value: string): string {
+    return value
+        .replace(/\s+/g, " ")
+        .replace(/^\*\*(.+)\*\*$/, "$1")
+        .replace(/^__(.+)__$/, "$1")
+        .replace(/[.:-]\s*$/, "")
+        .trim()
+        .slice(0, 72);
+}
+
+function SliceSignature(slice: TaskSlice | null): string {
+    if (!slice) return "";
+    return [
+        slice.Id,
+        slice.Status,
+        slice.Reason ?? "",
+        ...slice.Steps.map(Step => `${Step.Status}:${Step.Label}`),
+    ].join("|");
+}
+
+function TaskSliceStepSummary(slice: TaskSlice): string {
+    if (slice.Status === "complete") return "Complete";
+    if (slice.Status === "blocked") return "Blocked";
+    if (slice.Status === "replanned") return "Replanned";
+
+    const ActiveIndex = slice.Steps.findIndex(Step => Step.Status === "active");
+    if (ActiveIndex >= 0) return `Step ${ActiveIndex + 1} of ${slice.Steps.length}`;
+
+    const DoneCount = slice.Steps.filter(Step => Step.Status === "done").length;
+    return `${DoneCount} of ${slice.Steps.length}`;
+}
+
+function TaskLabelsChanged(a: TaskSlice, b: TaskSlice): boolean {
+    return a.Steps.some((Step, Index) => Step.Label !== b.Steps[Index]?.Label);
+}
+
+function ParseTaskStatus(value: string): TaskStatus {
+    const Status = value.trim().toLowerCase();
+    if (Status === "x" || Status === "done" || Status === "complete" || Status === "completed") {
+        return "done";
+    }
+    if (Status === "-" || Status === "~" || Status === "active" || Status === "now" || Status === "current") {
+        return "active";
+    }
+    return "pending";
+}
+
+function ParseSliceStatus(value: string | undefined): TaskSliceStatus | null {
+    switch ((value ?? "").trim().toLowerCase()) {
+        case "active": return "active";
+        case "replanned": return "replanned";
+        case "blocked": return "blocked";
+        case "complete": return "complete";
+        default: return null;
+    }
+}
+
+function ParseSliceAttributes(value: string): Record<string, string> {
+    const Result: Record<string, string> = {};
+    const Re = /(\w+)=("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s\]]+)/g;
+    let Match: RegExpExecArray | null;
+    while ((Match = Re.exec(value)) !== null) {
+        const Key = Match[1].toLowerCase();
+        let Raw = Match[2].trim();
+        if ((Raw.startsWith("\"") && Raw.endsWith("\"")) || (Raw.startsWith("'") && Raw.endsWith("'"))) {
+            Raw = Raw.slice(1, -1).replace(/\\"/g, "\"").replace(/\\'/g, "'");
+        }
+        Result[Key] = Raw;
+    }
+    return Result;
+}
+
+function ExtractSliceSteps(content: string): TaskStep[] | null {
+    const Steps: TaskStep[] = [];
+    for (const Line of content.split(/\r?\n/)) {
+        const Checkbox = Line.match(/^\s*(?:[-*]\s*|\d+[\).]\s*)?\[([^\]]*)\]\s+(.+)$/);
+        if (!Checkbox) continue;
+
+        const Label = CleanTaskLabel(Checkbox[2]);
+        if (!Label) continue;
+
+        Steps.push({
+            Label,
+            Status: ParseTaskStatus(Checkbox[1]),
+        });
+    }
+
+    return Steps.length === 4 ? Steps : null;
+}
+
+function ExtractTaskSlice(content: string): TaskSlice | null {
+    const Blocks: TaskSlice[] = [];
+    const Re = /\[NYX_SLICE([^\]]*)\]([\s\S]*?)\[\/NYX_SLICE\]/gi;
+    let Match: RegExpExecArray | null;
+
+    while ((Match = Re.exec(content)) !== null) {
+        const Attrs = ParseSliceAttributes(Match[1]);
+        const Id = Attrs.id?.trim();
+        const Status = ParseSliceStatus(Attrs.status);
+        const Reason = Attrs.reason?.trim();
+        const Steps = ExtractSliceSteps(Match[2]);
+
+        if (!Id || !Status || !Steps) continue;
+        if ((Status === "blocked" || Status === "replanned") && !Reason) continue;
+
+        Blocks.push({
+            Id,
+            Status,
+            Reason: Reason || undefined,
+            Steps,
+        });
+    }
+
+    return Blocks.length > 0 ? Blocks[Blocks.length - 1] : null;
+}
+
+function ReconcileTaskSlice(next: TaskSlice, current: TaskSlice | null): TaskSlice {
+    const NextSlice = next.Status === "complete"
+        ? { ...next, Steps: next.Steps.map(Step => ({ ...Step, Status: "done" as TaskStatus })) }
+        : next;
+
+    if (!current || current.Id !== NextSlice.Id || NextSlice.Status === "replanned") {
+        return NextSlice;
+    }
+
+    if (current.Status === "complete" && NextSlice.Status === "active" && TaskLabelsChanged(current, NextSlice)) {
+        return NextSlice;
+    }
+
+    return {
+        ...NextSlice,
+        Steps: current.Steps.map((Step, Index) => ({
+            ...Step,
+            Status: MergeTaskStatus(Step.Status, NextSlice.Steps[Index]?.Status ?? Step.Status),
+        })),
+    };
+}
+
+function TaskStatusRank(status: TaskStatus): number {
+    switch (status) {
+        case "pending": return 0;
+        case "active": return 1;
+        case "done": return 2;
+    }
+}
+
+function MergeTaskStatus(current: TaskStatus, next: TaskStatus): TaskStatus {
+    return TaskStatusRank(next) > TaskStatusRank(current) ? next : current;
+}
+
+function AdvanceTaskSliceFromCheckpointValue(slice: TaskSlice | null): TaskSlice | null {
+    if (!slice || slice.Status !== "active") return null;
+
+    const ActiveIndex = slice.Steps.findIndex(Step => Step.Status === "active");
+    const StepIndex = ActiveIndex >= 0
+        ? ActiveIndex
+        : slice.Steps.findIndex(Step => Step.Status === "pending");
+
+    if (StepIndex < 0) {
+        return {
+            ...slice,
+            Status: "complete",
+            Reason: undefined,
+            Steps: slice.Steps.map(Step => ({ ...Step, Status: "done" })),
+        };
+    }
+
+    const NextPendingIndex = slice.Steps.findIndex((Step, Index) =>
+        Index > StepIndex && Step.Status !== "done"
+    );
+
+    return {
+        ...slice,
+        Status: NextPendingIndex >= 0 ? "active" : "complete",
+        Reason: undefined,
+        Steps: slice.Steps.map((Step, Index) => {
+            if (Index <= StepIndex) {
+                return { ...Step, Status: "done" };
+            }
+            if (Index === NextPendingIndex) {
+                return { ...Step, Status: "active" };
+            }
+            return { ...Step, Status: Step.Status === "done" ? "done" : "pending" };
+        }),
+    };
 }
 
 function ClipForHistory(value: string, limit = HISTORY_TEXT_LIMIT): string {
@@ -221,18 +431,25 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
     const [Activity,    SetActivity]  = useState<AiActivityEvent>({ Kind: "idle", Label: "Idle" });
     const [QuestionDrafts, SetQuestionDrafts] = useState<Record<string, QuestionDraft>>({});
     const [DisclosureOpen, SetDisclosureOpen] = useState(() => !HasAcknowledgedAiDisclosure());
+    const TaskSlice = useStateKey<TaskSlice | null>("AiTaskSlice");
 
     const ScrollRef    = useRef<HTMLDivElement>(null);
-    const AssistantRaw = useRef("");
-    const AssistantVisible = useRef("");
+    const AssistantAllRaw = useRef("");
+    const AssistantSegmentRaw = useRef("");
+    const AssistantSegmentVisible = useRef("");
+    const CurrentAssistantMessageIdRef = useRef<string | null>(null);
+    const NextStreamIdRef = useRef(1);
     const TypeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const UnsubsRef    = useRef<(() => void)[]>([]);
     const TurnActionLogRef = useRef<string[]>([]);
+    const TaskSliceRef = useRef<TaskSlice | null>(TaskSlice ?? null);
+    const TaskSignatureRef = useRef(SliceSignature(TaskSlice ?? null));
 
     useEffect(() => {
         AiService.GetConfig().then(SetConfig).catch(() => {});
         AiService.GetAppSettings().then(S => {
             SetProvider(S.DefaultProvider);
+            StateManager.set("AiProvider", S.DefaultProvider);
             SetMode(S.AiMode);
         }).catch(() => {});
         return () => {
@@ -250,17 +467,43 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         }
     }, [Stream]);
 
+    const NewStreamId = useCallback((Prefix: string) => {
+        const Id = `${Prefix}_${Date.now()}_${NextStreamIdRef.current}`;
+        NextStreamIdRef.current += 1;
+        return Id;
+    }, []);
+
+    const SetTaskSliceIfChanged = useCallback((NextSlice: TaskSlice) => {
+        const Slice = ReconcileTaskSlice(NextSlice, TaskSliceRef.current);
+        const Signature = SliceSignature(Slice);
+        if (TaskSignatureRef.current === Signature) return;
+        TaskSignatureRef.current = Signature;
+        TaskSliceRef.current = Slice;
+        StateManager.set("AiTaskSlice", Slice);
+    }, []);
+
+    const UpdateTaskSliceFromText = useCallback((Content: string) => {
+        const Slice = ExtractTaskSlice(Content);
+        if (!Slice) return;
+        SetTaskSliceIfChanged(Slice);
+    }, [SetTaskSliceIfChanged]);
+
+    const AdvanceTaskSliceFromCheckpoint = useCallback(() => {
+        const NextSlice = AdvanceTaskSliceFromCheckpointValue(TaskSliceRef.current);
+        if (!NextSlice) return;
+        SetTaskSliceIfChanged(NextSlice);
+    }, [SetTaskSliceIfChanged]);
+
     const SetAssistantMessage = useCallback((Content: string) => {
+        const MessageId = CurrentAssistantMessageIdRef.current;
+        if (!MessageId) return;
+
         SetStream(Prev => {
-            const Copy = [...Prev];
-            for (let I = Copy.length - 1; I >= 0; I--) {
-                const Item = Copy[I];
-                if (Item.Kind === "message" && Item.Role === "assistant") {
-                    Copy[I] = { Kind: "message", Role: "assistant", Content };
-                    break;
-                }
-            }
-            return Copy;
+            return Prev.map(Item =>
+                Item.Kind === "message" && Item.Id === MessageId
+                    ? { ...Item, Content }
+                    : Item
+            );
         });
     }, []);
 
@@ -274,22 +517,54 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
     const StartTypewriter = useCallback(() => {
         if (TypeTimerRef.current) return;
         TypeTimerRef.current = setInterval(() => {
-            const Raw = AssistantRaw.current;
-            const Visible = AssistantVisible.current;
+            const Raw = AssistantSegmentRaw.current;
+            const Visible = AssistantSegmentVisible.current;
             if (Visible.length >= Raw.length) return;
 
             const Remaining = Raw.length - Visible.length;
             const Step = Remaining > 320 ? 18 : Remaining > 120 ? 10 : 4;
             const Next = Raw.slice(0, Visible.length + Math.min(Remaining, Step));
-            AssistantVisible.current = Next;
+            AssistantSegmentVisible.current = Next;
             SetAssistantMessage(Next);
         }, 24);
     }, [SetAssistantMessage]);
+
+    const FlushAssistantSegment = useCallback(() => {
+        const MessageId = CurrentAssistantMessageIdRef.current;
+        if (!MessageId) return;
+
+        StopTypewriter();
+        if (AssistantSegmentRaw.current.length > 0) {
+            AssistantSegmentVisible.current = AssistantSegmentRaw.current;
+            SetAssistantMessage(AssistantSegmentRaw.current);
+        } else {
+            SetStream(Prev => Prev.filter(Item =>
+                !(Item.Kind === "message" && Item.Id === MessageId)
+            ));
+        }
+        CurrentAssistantMessageIdRef.current = null;
+        AssistantSegmentRaw.current = "";
+        AssistantSegmentVisible.current = "";
+    }, [SetAssistantMessage, StopTypewriter]);
 
     const AvailableProviders: AiProvider[] = Config
         ? (["anthropic", "deepseek"] as AiProvider[]).filter(P =>
             P === "anthropic" ? Config.AnthropicKeySet : Config.DeepseekKeySet)
         : [];
+
+    useEffect(() => {
+        if (!Config || AvailableProviders.length === 0) return;
+
+        const ProviderHasKey = Provider === "anthropic"
+            ? Config.AnthropicKeySet
+            : Config.DeepseekKeySet;
+        if (ProviderHasKey) return;
+
+        const NextProvider = AvailableProviders[0];
+        SetProvider(NextProvider);
+        StateManager.set("AiProvider", NextProvider);
+        AiService.SaveAppSettings({ DefaultProvider: NextProvider }).catch(() => {});
+    }, [Config, Provider, AvailableProviders]);
 
     const HandleDisclosureAccept = useCallback(() => {
         AcknowledgeAiDisclosure();
@@ -307,19 +582,30 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
 
         SetError(null);
         SetInput("");
+        StateManager.set("AiProvider", Provider);
+        AiService.SaveAppSettings({ DefaultProvider: Provider }).catch(() => {});
 
-        const UserMsg: AiMessage = { Role: "user", Content: Text };
+        const UserMsg: AiMessage = {
+            Role: "user",
+            Content: Mode === "agentic" ? `${Text}\n\n${AGENTIC_UI_INSTRUCTION}` : Text,
+        };
         const NextHistory = [...ApiHistory, UserMsg];
+        const AssistantId = NewStreamId("assistant");
+        CurrentAssistantMessageIdRef.current = AssistantId;
 
         SetStream(Prev => [
             ...Prev,
-            { Kind: "message", Role: "user",      Content: Text },
-            { Kind: "message", Role: "assistant",  Content: "" },
+            { Kind: "message", Id: NewStreamId("user"), Role: "user",      Content: Text },
+            { Kind: "message", Id: AssistantId,         Role: "assistant", Content: "" },
         ]);
         SetStreaming(true);
-        AssistantRaw.current = "";
-        AssistantVisible.current = "";
+        AssistantAllRaw.current = "";
+        AssistantSegmentRaw.current = "";
+        AssistantSegmentVisible.current = "";
         TurnActionLogRef.current = [];
+        TaskSignatureRef.current = "";
+        TaskSliceRef.current = null;
+        StateManager.set("AiTaskSlice", null);
         StopTypewriter();
         SetActivity({ Kind: "thinking", Label: "Thinking" });
 
@@ -333,11 +619,27 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         }));
 
         unsubs.push(await listen<string>("ai_token", E => {
-            AssistantRaw.current += E.payload;
+            if (!CurrentAssistantMessageIdRef.current) {
+                const NextAssistantId = NewStreamId("assistant");
+                CurrentAssistantMessageIdRef.current = NextAssistantId;
+                AssistantSegmentRaw.current = "";
+                AssistantSegmentVisible.current = "";
+                SetStream(Prev => [...Prev, {
+                    Kind: "message",
+                    Id: NextAssistantId,
+                    Role: "assistant",
+                    Content: "",
+                }]);
+            }
+
+            AssistantAllRaw.current += E.payload;
+            AssistantSegmentRaw.current += E.payload;
+            UpdateTaskSliceFromText(AssistantAllRaw.current);
             StartTypewriter();
         }));
 
         unsubs.push(await listen<{ id: string; name: string; input: Record<string, unknown> }>("ai_tool_call", E => {
+            FlushAssistantSegment();
             TurnActionLogRef.current.push(
                 `tool_call ${E.payload.id}: ${E.payload.name} ${JsonForHistory(E.payload.input)}`
             );
@@ -351,6 +653,9 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
             TurnActionLogRef.current.push(
                 `tool_result ${E.payload.id}: ${E.payload.name} ${E.payload.error ? "error" : "ok"}\n${ClipForHistory(E.payload.result, HISTORY_TOOL_RESULT_LIMIT)}`
             );
+            if (Mode === "agentic" && E.payload.name === "create_memory" && !E.payload.error) {
+                AdvanceTaskSliceFromCheckpoint();
+            }
             SetStream(Prev => Prev.map(Item =>
                 Item.Kind === "tool_call" && Item.Id === E.payload.id
                     ? { ...Item, Status: E.payload.error ? "error" : "done", Result: E.payload.result }
@@ -364,6 +669,7 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         }));
 
         unsubs.push(await listen<AiQuestionRequest>("ai_question_request", E => {
+            FlushAssistantSegment();
             const Choices: Record<string, string> = {};
             for (const Question of E.payload.Questions) {
                 Choices[Question.Id] = Question.Options[0]?.Label ?? CHAT_ABOUT_THIS;
@@ -387,6 +693,7 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         }));
 
         unsubs.push(await listen<{ id: string; name: string; input: Record<string, unknown> }>("ai_tool_approval_needed", E => {
+            FlushAssistantSegment();
             SetStream(Prev => [...Prev, {
                 Kind: "approval", Id: E.payload.id, Name: E.payload.name, Input: E.payload.input,
             }]);
@@ -401,18 +708,18 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         }));
 
         unsubs.push(await listen<void>("ai_done", () => {
-            const FinalContent = AssistantRaw.current;
-            StopTypewriter();
-            AssistantVisible.current = FinalContent;
-            SetAssistantMessage(FinalContent);
+            const FinalContent = AssistantAllRaw.current;
+            FlushAssistantSegment();
             const HistoryContent = ActionLogMessage(FinalContent, TurnActionLogRef.current);
             if (HistoryContent) {
                 SetApiHistory([...NextHistory, { Role: "assistant", Content: HistoryContent }]);
             } else {
                 SetApiHistory(NextHistory);
             }
-            AssistantRaw.current = "";
-            AssistantVisible.current = "";
+            AssistantAllRaw.current = "";
+            AssistantSegmentRaw.current = "";
+            AssistantSegmentVisible.current = "";
+            CurrentAssistantMessageIdRef.current = null;
             TurnActionLogRef.current = [];
             SetStreaming(false);
             SetActivity({ Kind: "done", Label: "Done" });
@@ -426,17 +733,15 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
             StopTypewriter();
             SetStream(Prev => {
                 const Copy = [...Prev];
-                for (let I = Copy.length - 1; I >= 0; I--) {
-                    const Item = Copy[I];
-                    if (Item.Kind === "message" && Item.Role === "assistant" && !Item.Content) {
-                        Copy.splice(I, 1);
-                        break;
-                    }
-                }
-                return Copy;
+                const CurrentId = CurrentAssistantMessageIdRef.current;
+                return CurrentId
+                    ? Copy.filter(Item => !(Item.Kind === "message" && Item.Id === CurrentId && !Item.Content))
+                    : Copy;
             });
-            AssistantRaw.current = "";
-            AssistantVisible.current = "";
+            AssistantAllRaw.current = "";
+            AssistantSegmentRaw.current = "";
+            AssistantSegmentVisible.current = "";
+            CurrentAssistantMessageIdRef.current = null;
             TurnActionLogRef.current = [];
             SetActivity({ Kind: "error", Label: "Error" });
             unsubs.forEach(fn => fn());
@@ -449,10 +754,11 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
             SetError(String(Err));
             SetStreaming(false);
             StopTypewriter();
+            CurrentAssistantMessageIdRef.current = null;
             unsubs.forEach(fn => fn());
             UnsubsRef.current = [];
         });
-    }, [Input, Streaming, ApiHistory, Provider, Mode, Workspace, AvailableProviders, StartTypewriter, StopTypewriter, SetAssistantMessage]);
+    }, [Input, Streaming, ApiHistory, Provider, Mode, Workspace, AvailableProviders, NewStreamId, UpdateTaskSliceFromText, AdvanceTaskSliceFromCheckpoint, StartTypewriter, StopTypewriter, FlushAssistantSegment]);
 
     const HandleKeyDown = useCallback((E: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (E.key === "Enter" && !E.shiftKey) {
@@ -465,9 +771,14 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         UnsubsRef.current.forEach(fn => fn());
         UnsubsRef.current = [];
         StopTypewriter();
-        AssistantRaw.current = "";
-        AssistantVisible.current = "";
+        AssistantAllRaw.current = "";
+        AssistantSegmentRaw.current = "";
+        AssistantSegmentVisible.current = "";
+        CurrentAssistantMessageIdRef.current = null;
         TurnActionLogRef.current = [];
+        TaskSignatureRef.current = "";
+        TaskSliceRef.current = null;
+        StateManager.set("AiTaskSlice", null);
         SetStream([]);
         SetApiHistory([]);
         SetQuestionDrafts({});
@@ -528,9 +839,8 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
 
     const HandleProviderChange = useCallback((P: AiProvider) => {
         SetProvider(P);
-        AiService.GetAppSettings().then(S =>
-            AiService.SaveAppSettings({ ...S, DefaultProvider: P })
-        ).catch(() => {});
+        StateManager.set("AiProvider", P);
+        AiService.SaveAppSettings({ DefaultProvider: P }).catch(() => {});
     }, []);
 
     const HandleModeToggle = useCallback(() => {
@@ -612,6 +922,36 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
                 <span className={styles.ActivityDot} />
                 <span className={styles.ActivityLabel}>{Streaming ? Activity.Label : "Ready"}</span>
             </div>
+
+            {Mode === "agentic" && TaskSlice && (
+                <div className={styles.TaskHeader} aria-label="Agent checklist">
+                    <div className={styles.TaskHeaderTitle}>
+                        <span>Agent checklist</span>
+                        <span>
+                            Slice {TaskSlice.Id} | {TaskSliceStepSummary(TaskSlice)}
+                        </span>
+                    </div>
+                    {TaskSlice.Reason && (
+                        <div className={styles.TaskReason}>{TaskSlice.Reason}</div>
+                    )}
+                    <div className={styles.TaskStepGrid}>
+                        {TaskSlice.Steps.map((Step, Index) => (
+                            <div
+                                key={`${Index}_${Step.Label}`}
+                                aria-current={Step.Status === "active" ? "step" : undefined}
+                                className={`${styles.TaskStep} ${
+                                    Step.Status === "done" ? styles.TaskStepDone :
+                                    Step.Status === "active" ? styles.TaskStepActive :
+                                    styles.TaskStepPending
+                                }`}
+                            >
+                                <span className={styles.TaskStepMark} aria-hidden="true" />
+                                <span className={styles.TaskStepLabel}>{Step.Label}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {DisclosureOpen && (
                 <div className={styles.DisclosureBackdrop}>

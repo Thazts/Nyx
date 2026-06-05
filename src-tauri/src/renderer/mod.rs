@@ -79,35 +79,35 @@ pub struct NyxRenderer {
 }
 
 impl NyxRenderer {
-    pub fn new(parent_hwnd: isize, app_handle: tauri::AppHandle) -> Result<Self, String> {
-        let hwnd = window::CreateChildWindow(parent_hwnd)?;
+    pub fn new(ParentHwnd: isize, app_handle: tauri::AppHandle) -> Result<Self, String> {
+        let hwnd = window::CreateChildWindow(ParentHwnd)?;
         let state = Arc::new(Mutex::new(SceneState::default()));
-        let camera_input = Arc::new(Mutex::new(CameraInput::default()));
+        let CameraInput = Arc::new(Mutex::new(CameraInput::default()));
         let undo = Arc::new(Mutex::new(UndoHistory::default()));
         window::InitViewportInput(
-            Arc::clone(&camera_input),
+            Arc::clone(&CameraInput),
             Arc::clone(&state),
             Arc::clone(&undo),
             app_handle,
         );
 
-        let state_t = Arc::clone(&state);
-        let input_t = Arc::clone(&camera_input);
+        let StateT = Arc::clone(&state);
+        let InputT = Arc::clone(&CameraInput);
         std::thread::Builder::new()
             .name("nyx-renderer".into())
-            .spawn(move || RenderLoop(hwnd, state_t, input_t))
+            .spawn(move || RenderLoop(hwnd, StateT, InputT))
             .map_err(|e| e.to_string())?;
 
         Ok(NyxRenderer {
             hwnd,
             state,
-            camera_input,
+            camera_input: CameraInput,
             undo,
         })
     }
 }
 
-fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, camera_input: Arc<Mutex<CameraInput>>) {
+fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex<CameraInput>>) {
     let mut render = match pipeline::RenderState::new(hwnd, 1, 1) {
         Ok(r) => r,
         Err(e) => {
@@ -117,22 +117,22 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, camera_input: Arc<Mute
     };
 
     let format = render.config.format;
-    let mut scene_renderer = SceneRenderer::new(&render.device, format, 1, 1);
+    let mut SceneRenderer = SceneRenderer::new(&render.device, format, 1, 1);
     let mut sky = wgpu::Color {
         r: 0.39,
         g: 0.58,
         b: 0.93,
         a: 1.0,
     };
-    let mut last_frame = Instant::now();
+    let mut LastFrame = Instant::now();
 
     loop {
         let now = Instant::now();
-        let frame_dt = now.duration_since(last_frame).as_secs_f32();
-        last_frame = now;
+        let FrameDt = now.duration_since(LastFrame).as_secs_f32();
+        LastFrame = now;
 
         let (orbit_dx, orbit_dy, pan_dx, pan_dy, zoom, forward, right, up) = {
-            let mut ci = camera_input.lock().unwrap();
+            let mut ci = CameraInput.lock().unwrap();
             let vals = (
                 ci.orbit_dx,
                 ci.orbit_dy,
@@ -147,7 +147,7 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, camera_input: Arc<Mute
             vals
         };
 
-        let has_camera_input = orbit_dx != 0.0
+        let HasCameraInput = orbit_dx != 0.0
             || orbit_dy != 0.0
             || pan_dx != 0.0
             || pan_dy != 0.0
@@ -165,7 +165,7 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, camera_input: Arc<Mute
 
             if s.visible {
                 let mut physics = std::mem::take(&mut s.physics);
-                if physics.StepCommands(&mut s.commands, frame_dt) {
+                if physics.StepCommands(&mut s.commands, FrameDt) {
                     s.dirty = true;
                 }
                 s.physics = physics;
@@ -181,42 +181,42 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, camera_input: Arc<Mute
         let (_, _, w, h) = bounds;
         if w != render.width || h != render.height {
             render.resize(w, h);
-            scene_renderer.resize(&render.device, format, w, h);
+            SceneRenderer.resize(&render.device, format, w, h);
         }
         if dirty {
-            let (commands, selected, gizmo_mode, skip_camera_meta) = {
+            let (commands, selected, gizmo_mode, SkipCameraMeta) = {
                 let s = state.lock().unwrap();
-                let skip_camera_meta = s.skip_camera_meta;
+                let SkipCameraMeta = s.skip_camera_meta;
                 (
                     s.commands.clone(),
                     s.selected.clone(),
                     s.gizmo_mode.clone(),
-                    skip_camera_meta,
+                    SkipCameraMeta,
                 )
             };
-            scene_renderer.LoadCommands(&render.queue, &commands);
-            scene_renderer.LoadGizmo(&render.queue, selected.as_deref(), &commands, &gizmo_mode);
+            SceneRenderer.LoadCommands(&render.queue, &commands);
+            SceneRenderer.LoadGizmo(&render.queue, selected.as_deref(), &commands, &gizmo_mode);
 
             let mut s = state.lock().unwrap();
-            ProcessMetaCommands(&commands, &mut s.camera, &mut sky, skip_camera_meta);
+            ProcessMetaCommands(&commands, &mut s.camera, &mut sky, SkipCameraMeta);
             UpdateCameraClip(&commands, &mut s.camera);
-            if !skip_camera_meta {
+            if !SkipCameraMeta {
                 s.skip_camera_meta = true;
             }
             camera = s.camera.clone();
         }
 
-        let needs_render = has_camera_input || dirty;
+        let NeedsRender = HasCameraInput || dirty;
 
         if visible && render.width > 0 && render.height > 0 {
             camera.aspect = render.width as f32 / render.height as f32;
             if let Ok(mut s) = state.try_lock() {
                 s.camera.aspect = camera.aspect;
             }
-            if needs_render {
+            if NeedsRender {
                 let uniform = camera.ToUniform();
-                scene_renderer.UpdateCamera(&render.queue, &uniform);
-                scene_renderer.render(&render.surface.0, &render.device, &render.queue, sky);
+                SceneRenderer.UpdateCamera(&render.queue, &uniform);
+                SceneRenderer.render(&render.surface.0, &render.device, &render.queue, sky);
                 std::thread::sleep(std::time::Duration::from_millis(8));
             } else {
                 std::thread::sleep(std::time::Duration::from_millis(14));
@@ -231,7 +231,7 @@ fn ProcessMetaCommands(
     commands: &[serde_json::Value],
     camera: &mut OrbitalCamera,
     sky: &mut wgpu::Color,
-    skip_camera_meta: bool,
+    SkipCameraMeta: bool,
 ) {
     for cmd in commands {
         match cmd.get("Cmd").and_then(|v| v.as_str()) {
@@ -242,7 +242,7 @@ fn ProcessMetaCommands(
                     sky.b = col.get("B").and_then(|v| v.as_f64()).unwrap_or(0.93);
                 }
             }
-            Some("SetCamera") if !skip_camera_meta => {
+            Some("SetCamera") if !SkipCameraMeta => {
                 let pos = cmd.get("Position");
                 let look = cmd.get("LookAt");
                 let f = |obj: Option<&serde_json::Value>, k: &str, d: f64| -> f32 {

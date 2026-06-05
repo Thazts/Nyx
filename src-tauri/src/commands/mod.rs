@@ -32,20 +32,20 @@ pub fn get_system_stats() -> SystemStats {
     let mut sys = monitor.lock().unwrap_or_else(|e| e.into_inner());
     sys.refresh_all();
 
-    let cpu_usage = sys.global_cpu_usage();
-    let memory_used_mb = sys.used_memory() / (1024 * 1024);
-    let memory_total_mb = sys.total_memory() / (1024 * 1024);
-    let current_pid = sysinfo::Pid::from(std::process::id() as usize);
-    let process_memory_mb = sys
-        .process(current_pid)
+    let CpuUsage = sys.global_cpu_usage();
+    let MemoryUsedMb = sys.used_memory() / (1024 * 1024);
+    let MemoryTotalMb = sys.total_memory() / (1024 * 1024);
+    let CurrentPid = sysinfo::Pid::from(std::process::id() as usize);
+    let ProcessMemoryMb = sys
+        .process(CurrentPid)
         .map(|p| p.memory() / (1024 * 1024))
         .unwrap_or(0);
 
     SystemStats {
-        cpu_usage,
-        memory_used_mb,
-        memory_total_mb,
-        process_memory_mb,
+        cpu_usage: CpuUsage,
+        memory_used_mb: MemoryUsedMb,
+        memory_total_mb: MemoryTotalMb,
+        process_memory_mb: ProcessMemoryMb,
     }
 }
 
@@ -188,16 +188,16 @@ pub fn list_files_recursive(path: String) -> Result<Vec<String>, String> {
     let entries = fs::read_dir(&path).map_err(|e| e.to_string())?;
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
-        let entry_path = entry.path();
-        let name = entry_path
+        let EntryPath = entry.path();
+        let name = EntryPath
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        if entry_path.is_file() {
-            result.push(entry_path.to_string_lossy().to_string());
-        } else if entry_path.is_dir() && !SkipDir(&name) {
-            let sub_files = list_files_recursive(entry_path.to_string_lossy().to_string())?;
-            result.extend(sub_files);
+        if EntryPath.is_file() {
+            result.push(EntryPath.to_string_lossy().to_string());
+        } else if EntryPath.is_dir() && !SkipDir(&name) {
+            let SubFiles = list_files_recursive(EntryPath.to_string_lossy().to_string())?;
+            result.extend(SubFiles);
         }
     }
     result.sort();
@@ -208,9 +208,9 @@ pub fn list_files_recursive(path: String) -> Result<Vec<String>, String> {
 pub fn open_file(path: String, app_state: State<'_, AppState>) -> Result<String, String> {
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     {
-        let mut open_files = app_state.open_files.lock().map_err(|e| e.to_string())?;
-        if !open_files.iter().any(|p| p == &path) {
-            open_files.push(path.clone());
+        let mut OpenFiles = app_state.open_files.lock().map_err(|e| e.to_string())?;
+        if !OpenFiles.iter().any(|p| p == &path) {
+            OpenFiles.push(path.clone());
         }
     }
     *app_state.active_file.lock().map_err(|e| e.to_string())? = Some(path);
@@ -237,9 +237,9 @@ pub fn save_file(
             },
         );
     {
-        let mut open_files = app_state.open_files.lock().map_err(|e| e.to_string())?;
-        if !open_files.iter().any(|p| p == &path) {
-            open_files.push(path.clone());
+        let mut OpenFiles = app_state.open_files.lock().map_err(|e| e.to_string())?;
+        if !OpenFiles.iter().any(|p| p == &path) {
+            OpenFiles.push(path.clone());
         }
     }
     *app_state.active_file.lock().map_err(|e| e.to_string())? = Some(path);
@@ -283,10 +283,10 @@ pub fn select_folder(app_state: State<'_, AppState>) -> Result<String, String> {
     let dialog = rfd::FileDialog::new().pick_folder();
     match dialog {
         Some(path) => {
-            let workspace_path = path.to_string_lossy().to_string();
+            let WorkspacePath = path.to_string_lossy().to_string();
             *app_state.workspace_path.lock().map_err(|e| e.to_string())? =
-                Some(workspace_path.clone());
-            Ok(workspace_path)
+                Some(WorkspacePath.clone());
+            Ok(WorkspacePath)
         }
         None => Err("No folder selected".to_string()),
     }
@@ -323,14 +323,14 @@ fn ReadFileMetadata(path: &str) -> Result<FileMetadata, String> {
         .as_secs();
     let secs = modified as i64;
     let (year, month, day, hour, min, sec) = SecsToDatetime(secs);
-    let modified_str = format!(
+    let ModifiedStr = format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
         year, month, day, hour, min, sec
     );
 
     Ok(FileMetadata {
         size,
-        modified: modified_str,
+        modified: ModifiedStr,
     })
 }
 
@@ -545,27 +545,27 @@ fn RunSceneAtTime(
     elapsed: Option<f64>,
 ) -> Result<RunSceneResult, String> {
     let profile = ResolveSceneProfile(&path, &profile);
-    let user_code =
+    let UserCode =
         fs::read_to_string(&path).map_err(|e| format!("Cannot read scene file: {}", e))?;
 
     match profile.as_str() {
-        "roblox" => RunLuaSceneAtTime(&path, &user_code, elapsed),
-        "unity" => RunEmbeddedSceneCommands(&path, &user_code, "Unity C# shim", UNITY_SHIM),
-        "unreal" => RunEmbeddedSceneCommands(&path, &user_code, "Unreal C++ shim", UNREAL_SHIM),
+        "roblox" => RunLuaSceneAtTime(&path, &UserCode, elapsed),
+        "unity" => RunEmbeddedSceneCommands(&path, &UserCode, "Unity C# shim", UNITY_SHIM),
+        "unreal" => RunEmbeddedSceneCommands(&path, &UserCode, "Unreal C++ shim", UNREAL_SHIM),
         other => Err(format!("Unknown engine profile: '{}'", other)),
     }
 }
 
 fn RunLuaSceneAtTime(
     path: &str,
-    user_code: &str,
+    UserCode: &str,
     elapsed: Option<f64>,
 ) -> Result<RunSceneResult, String> {
     let lua = Lua::new();
     let captured = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = Arc::clone(&captured);
 
-    let print_fn = lua
+    let PrintFn = lua
         .create_function(move |_, args: LuaMultiValue| {
             let Text = args.iter().map(LuaDisplay).collect::<Vec<_>>().join("\t");
             sink.lock().unwrap().push(Text);
@@ -573,7 +573,7 @@ fn RunLuaSceneAtTime(
         })
         .map_err(|e| e.to_string())?;
     lua.globals()
-        .set("print", print_fn)
+        .set("print", PrintFn)
         .map_err(|e| e.to_string())?;
     if let Some(elapsed) = elapsed {
         lua.globals()
@@ -586,7 +586,7 @@ fn RunLuaSceneAtTime(
         .map_err(|e| format!("Runtime shim error: {}", e))?;
 
     let mut errors = Vec::new();
-    if let Err(e) = lua.load(user_code).exec() {
+    if let Err(e) = lua.load(UserCode).exec() {
         errors.push(e.to_string());
     }
     if let Some(elapsed) = elapsed {
@@ -623,12 +623,12 @@ fn RunLuaSceneAtTime(
 
 fn RunEmbeddedSceneCommands(
     path: &str,
-    user_code: &str,
+    UserCode: &str,
     shim_label: &str,
     shim_source: &str,
 ) -> Result<RunSceneResult, String> {
-    let json_text = ExtractNyxSceneJson(user_code).map_err(|e| format!("{}: {}", path, e))?;
-    let value: serde_json::Value = serde_json::from_str(json_text)
+    let JsonText = ExtractNyxSceneJson(UserCode).map_err(|e| format!("{}: {}", path, e))?;
+    let value: serde_json::Value = serde_json::from_str(JsonText)
         .map_err(|e| format!("{}: invalid @nyx-scene JSON: {}", path, e))?;
     let commands = match value {
         serde_json::Value::Array(items) => items,
@@ -667,10 +667,10 @@ fn ResolveSceneProfile(path: &str, requested: &str) -> String {
 
 fn ExtractNyxSceneJson(source: &str) -> Result<&str, String> {
     let marker = "@nyx-scene";
-    let marker_pos = source
+    let MarkerPos = source
         .find(marker)
         .ok_or_else(|| "missing @nyx-scene command block".to_string())?;
-    let tail = &source[marker_pos + marker.len()..];
+    let tail = &source[MarkerPos + marker.len()..];
     let start = tail
         .find(|ch| ch == '[' || ch == '{')
         .ok_or_else(|| "@nyx-scene block does not contain JSON".to_string())?;
@@ -689,23 +689,23 @@ fn JsonBlockEnd(source: &str, start: usize) -> Result<usize, String> {
         _ => return Err("@nyx-scene JSON must start with '[' or '{'".to_string()),
     };
     let mut depth = 0usize;
-    let mut in_string = false;
+    let mut InString = false;
     let mut escape = false;
 
     for (offset, ch) in source[start..].char_indices() {
-        if in_string {
+        if InString {
             if escape {
                 escape = false;
             } else if ch == '\\' {
                 escape = true;
             } else if ch == '"' {
-                in_string = false;
+                InString = false;
             }
             continue;
         }
 
         if ch == '"' {
-            in_string = true;
+            InString = true;
         } else if ch == open {
             depth += 1;
         } else if ch == close {
@@ -788,30 +788,30 @@ fn LuaDisplay(v: &LuaValue) -> String {
 #[tauri::command]
 pub fn delete_path(path: String, app_state: State<'_, AppState>) -> Result<(), String> {
     let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
-    let is_dir = meta.is_dir();
+    let IsDir = meta.is_dir();
     if meta.is_dir() {
         fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
     } else {
         fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
-    let deleted_path = PathBuf::from(&path);
+    let DeletedPath = PathBuf::from(&path);
     app_state
         .open_files
         .lock()
         .map_err(|e| e.to_string())?
-        .retain(|open_path| !PathMatchesTarget(open_path, &deleted_path, is_dir));
+        .retain(|OpenPath| !PathMatchesTarget(OpenPath, &DeletedPath, IsDir));
     app_state
         .file_metadata
         .lock()
         .map_err(|e| e.to_string())?
-        .retain(|file_path, _| !PathMatchesTarget(file_path, &deleted_path, is_dir));
-    let mut active_file = app_state.active_file.lock().map_err(|e| e.to_string())?;
-    if active_file
+        .retain(|file_path, _| !PathMatchesTarget(file_path, &DeletedPath, IsDir));
+    let mut ActiveFile = app_state.active_file.lock().map_err(|e| e.to_string())?;
+    if ActiveFile
         .as_ref()
-        .map(|active| PathMatchesTarget(active, &deleted_path, is_dir))
+        .map(|active| PathMatchesTarget(active, &DeletedPath, IsDir))
         .unwrap_or(false)
     {
-        *active_file = None;
+        *ActiveFile = None;
     }
     Ok(())
 }
@@ -825,35 +825,35 @@ pub fn rename_path(
     let old = std::path::Path::new(&path);
     let parent = old.parent().ok_or("No parent directory")?;
     let new = parent.join(&new_name);
-    let is_dir = fs::metadata(&path).map_err(|e| e.to_string())?.is_dir();
+    let IsDir = fs::metadata(&path).map_err(|e| e.to_string())?.is_dir();
     fs::rename(&path, &new).map_err(|e| e.to_string())?;
-    let new_path = new.to_string_lossy().to_string();
+    let NewPath = new.to_string_lossy().to_string();
     {
-        let mut open_files = app_state.open_files.lock().map_err(|e| e.to_string())?;
-        for open_path in open_files.iter_mut() {
-            if let Some(rebased) = RebasePath(open_path, old, &new, is_dir) {
-                *open_path = rebased;
+        let mut OpenFiles = app_state.open_files.lock().map_err(|e| e.to_string())?;
+        for OpenPath in OpenFiles.iter_mut() {
+            if let Some(rebased) = RebasePath(OpenPath, old, &new, IsDir) {
+                *OpenPath = rebased;
             }
         }
     }
     {
-        let mut active_file = app_state.active_file.lock().map_err(|e| e.to_string())?;
-        if let Some(active) = active_file
+        let mut ActiveFile = app_state.active_file.lock().map_err(|e| e.to_string())?;
+        if let Some(active) = ActiveFile
             .as_ref()
-            .and_then(|value| RebasePath(value, old, &new, is_dir))
+            .and_then(|value| RebasePath(value, old, &new, IsDir))
         {
-            *active_file = Some(active);
+            *ActiveFile = Some(active);
         }
     }
     {
         let mut metadata = app_state.file_metadata.lock().map_err(|e| e.to_string())?;
         let entries: Vec<(String, FileRecord)> = metadata.drain().collect();
         for (file_path, record) in entries {
-            let key = RebasePath(&file_path, old, &new, is_dir).unwrap_or(file_path);
+            let key = RebasePath(&file_path, old, &new, IsDir).unwrap_or(file_path);
             metadata.insert(key, record);
         }
     }
-    Ok(new_path)
+    Ok(NewPath)
 }
 
 #[tauri::command]
@@ -947,16 +947,16 @@ fn RayAabbIntersect(
     min: glam::Vec3,
     max: glam::Vec3,
 ) -> Option<f32> {
-    let inv_dir = 1.0 / dir;
-    let mut tmin = (min.x - origin.x) * inv_dir.x;
-    let mut tmax = (max.x - origin.x) * inv_dir.x;
-    if inv_dir.x < 0.0 {
+    let InvDir = 1.0 / dir;
+    let mut tmin = (min.x - origin.x) * InvDir.x;
+    let mut tmax = (max.x - origin.x) * InvDir.x;
+    if InvDir.x < 0.0 {
         std::mem::swap(&mut tmin, &mut tmax);
     }
 
-    let mut tymin = (min.y - origin.y) * inv_dir.y;
-    let mut tymax = (max.y - origin.y) * inv_dir.y;
-    if inv_dir.y < 0.0 {
+    let mut tymin = (min.y - origin.y) * InvDir.y;
+    let mut tymax = (max.y - origin.y) * InvDir.y;
+    if InvDir.y < 0.0 {
         std::mem::swap(&mut tymin, &mut tymax);
     }
 
@@ -970,9 +970,9 @@ fn RayAabbIntersect(
         tmax = tymax;
     }
 
-    let mut tzmin = (min.z - origin.z) * inv_dir.z;
-    let mut tzmax = (max.z - origin.z) * inv_dir.z;
-    if inv_dir.z < 0.0 {
+    let mut tzmin = (min.z - origin.z) * InvDir.z;
+    let mut tzmax = (max.z - origin.z) * InvDir.z;
+    if InvDir.z < 0.0 {
         std::mem::swap(&mut tzmin, &mut tzmax);
     }
 
@@ -1067,9 +1067,9 @@ pub fn renderer_gizmo_hit_test(
         None => return Ok(None),
     };
 
-    let ndc_x = (x / width) * 2.0 - 1.0;
-    let ndc_y = 1.0 - (y / height) * 2.0;
-    let (origin, dir) = s.camera.GetRay(ndc_x, ndc_y);
+    let NdcX = (x / width) * 2.0 - 1.0;
+    let NdcY = 1.0 - (y / height) * 2.0;
+    let (origin, dir) = s.camera.GetRay(NdcX, NdcY);
 
     for cmd in &s.commands {
         if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
@@ -1098,12 +1098,12 @@ pub fn renderer_gizmo_hit_test(
             "rotate" => {
                 let radius = sx.max(sy).max(sz) * 0.5 + 0.8;
                 let thr = 0.4_f32;
-                let test_ring = |plane_normal: glam::Vec3| -> Option<f32> {
-                    let denom = plane_normal.dot(dir);
+                let TestRing = |PlaneNormal: glam::Vec3| -> Option<f32> {
+                    let denom = PlaneNormal.dot(dir);
                     if denom.abs() < 1e-6 {
                         return None;
                     }
-                    let t = plane_normal.dot(c - origin) / denom;
+                    let t = PlaneNormal.dot(c - origin) / denom;
                     if t < 0.0 {
                         return None;
                     }
@@ -1115,9 +1115,9 @@ pub fn renderer_gizmo_hit_test(
                         None
                     }
                 };
-                let dx = test_ring(glam::Vec3::X);
-                let dy = test_ring(glam::Vec3::Y);
-                let dz = test_ring(glam::Vec3::Z);
+                let dx = TestRing(glam::Vec3::X);
+                let dy = TestRing(glam::Vec3::Y);
+                let dz = TestRing(glam::Vec3::Z);
                 let best = [("X", dx), ("Y", dy), ("Z", dz)]
                     .into_iter()
                     .filter_map(|(ax, d)| d.map(|v| (ax, v)))
@@ -1197,7 +1197,7 @@ pub fn renderer_gizmo_drag(
         s.drag_undo_pushed = true;
     }
 
-    let axis_dir = match axis.as_str() {
+    let AxisDir = match axis.as_str() {
         "X" => glam::Vec3::X,
         "Y" => glam::Vec3::Y,
         "Z" => glam::Vec3::Z,
@@ -1232,16 +1232,16 @@ pub fn renderer_gizmo_drag(
         }
     };
 
-    let to_ndc =
+    let ToNdc =
         |sx: f32, sy: f32| -> (f32, f32) { ((sx / width) * 2.0 - 1.0, 1.0 - (sy / height) * 2.0) };
-    let (pnx, pny) = to_ndc(prev_x, prev_y);
-    let (cnx, cny) = to_ndc(curr_x, curr_y);
+    let (pnx, pny) = ToNdc(prev_x, prev_y);
+    let (cnx, cny) = ToNdc(curr_x, curr_y);
     let (po, pd) = s.camera.GetRay(pnx, pny);
     let (co, cd) = s.camera.GetRay(cnx, cny);
 
-    let t_prev = ClosestTOnLine(po, pd, PartPos, axis_dir);
-    let t_curr = ClosestTOnLine(co, cd, PartPos, axis_dir);
-    let new_pos = PartPos + axis_dir * (t_curr - t_prev);
+    let TPrev = ClosestTOnLine(po, pd, PartPos, AxisDir);
+    let TCurr = ClosestTOnLine(co, cd, PartPos, AxisDir);
+    let NewPos = PartPos + AxisDir * (TCurr - TPrev);
 
     for cmd in &mut s.commands {
         if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
@@ -1251,7 +1251,7 @@ pub fn renderer_gizmo_drag(
             continue;
         }
         if let Some(p) = cmd.get_mut("Position") {
-            *p = serde_json::json!({"X": new_pos.x, "Y": new_pos.y, "Z": new_pos.z});
+            *p = serde_json::json!({"X": NewPos.x, "Y": NewPos.y, "Z": NewPos.z});
         }
         break;
     }
@@ -1261,7 +1261,7 @@ pub fn renderer_gizmo_drag(
     physics.Reconcile(&s.commands, &profile);
     s.physics = physics;
     s.dirty = true;
-    Ok(Some([new_pos.x, new_pos.y, new_pos.z]))
+    Ok(Some([NewPos.x, NewPos.y, NewPos.z]))
 }
 
 #[tauri::command]
@@ -1276,12 +1276,12 @@ pub fn renderer_click(
     let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
 
-    let ndc_x = (x / width) * 2.0 - 1.0;
-    let ndc_y = 1.0 - (y / height) * 2.0;
+    let NdcX = (x / width) * 2.0 - 1.0;
+    let NdcY = 1.0 - (y / height) * 2.0;
 
-    let (origin, dir) = s.camera.GetRay(ndc_x, ndc_y);
+    let (origin, dir) = s.camera.GetRay(NdcX, NdcY);
 
-    let get_f32 = |obj: &serde_json::Value, k: &str, field: &str, d: f32| -> f32 {
+    let GetF32 = |obj: &serde_json::Value, k: &str, field: &str, d: f32| -> f32 {
         obj.get(k)
             .and_then(|o| o.get(field))
             .and_then(|v| v.as_f64())
@@ -1290,17 +1290,17 @@ pub fn renderer_click(
     };
 
     let mut ClosestT = f32::MAX;
-    let mut selected_id = None;
+    let mut SelectedId = None;
 
     for cmd in &s.commands {
         if cmd.get("Cmd").and_then(|v| v.as_str()) == Some("AddPart") {
-            let px = get_f32(cmd, "Position", "X", 0.0);
-            let py = get_f32(cmd, "Position", "Y", 0.0);
-            let pz = get_f32(cmd, "Position", "Z", 0.0);
+            let px = GetF32(cmd, "Position", "X", 0.0);
+            let py = GetF32(cmd, "Position", "Y", 0.0);
+            let pz = GetF32(cmd, "Position", "Z", 0.0);
 
-            let sx = get_f32(cmd, "Size", "X", 1.0);
-            let sy = get_f32(cmd, "Size", "Y", 1.0);
-            let sz = get_f32(cmd, "Size", "Z", 1.0);
+            let sx = GetF32(cmd, "Size", "X", 1.0);
+            let sy = GetF32(cmd, "Size", "Y", 1.0);
+            let sz = GetF32(cmd, "Size", "Z", 1.0);
 
             let center = glam::Vec3::new(px, py, pz);
             let extents = glam::Vec3::new(sx, sy, sz) * 0.5;
@@ -1312,21 +1312,21 @@ pub fn renderer_click(
                 if t < ClosestT {
                     ClosestT = t;
                     if let Some(id) = cmd.get("Id").and_then(|v| v.as_str()) {
-                        selected_id = Some(id.to_string());
+                        SelectedId = Some(id.to_string());
                     }
                 }
             }
         }
     }
 
-    s.selected = selected_id.clone();
+    s.selected = SelectedId.clone();
     s.dirty = true;
     *app_state
         .selected_part_id
         .lock()
-        .map_err(|e| e.to_string())? = selected_id.clone();
+        .map_err(|e| e.to_string())? = SelectedId.clone();
 
-    Ok(selected_id)
+    Ok(SelectedId)
 }
 
 #[tauri::command]
@@ -1454,7 +1454,7 @@ pub fn renderer_attach(
 ) -> Result<(), String> {
     use tauri::Manager;
     let hwnd = renderer.lock().map_err(|e| e.to_string())?.hwnd;
-    let parent_hwnd = {
+    let ParentHwnd = {
         use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
         match app
             .get_window("main")
@@ -1466,7 +1466,7 @@ pub fn renderer_attach(
         }
     };
     app.run_on_main_thread(move || {
-        nyx_window::AttachWindow(hwnd, parent_hwnd, x, y, width, height);
+        nyx_window::AttachWindow(hwnd, ParentHwnd, x, y, width, height);
     })
     .map_err(|e| e.to_string())
 }
@@ -1533,24 +1533,24 @@ pub fn renderer_set_part_properties(
             cmd["Color"] = c;
         }
         if let Some(rot) = rotation {
-            let cur_cf = cmd.get("CFrame").cloned().unwrap_or(serde_json::json!({}));
-            let mut new_cf = cur_cf;
+            let CurCf = cmd.get("CFrame").cloned().unwrap_or(serde_json::json!({}));
+            let mut NewCf = CurCf;
             if let Some(rx) = rot.get("RX") {
-                new_cf["RX"] = rx.clone();
+                NewCf["RX"] = rx.clone();
             }
             if let Some(ry) = rot.get("RY") {
-                new_cf["RY"] = ry.clone();
+                NewCf["RY"] = ry.clone();
             }
             if let Some(rz) = rot.get("RZ") {
-                new_cf["RZ"] = rz.clone();
+                NewCf["RZ"] = rz.clone();
             }
             // Keep translation in CFrame synced to Position
             if let Some(pos) = cmd.get("Position") {
-                new_cf["X"] = pos.get("X").cloned().unwrap_or(serde_json::json!(0.0));
-                new_cf["Y"] = pos.get("Y").cloned().unwrap_or(serde_json::json!(0.0));
-                new_cf["Z"] = pos.get("Z").cloned().unwrap_or(serde_json::json!(0.0));
+                NewCf["X"] = pos.get("X").cloned().unwrap_or(serde_json::json!(0.0));
+                NewCf["Y"] = pos.get("Y").cloned().unwrap_or(serde_json::json!(0.0));
+                NewCf["Z"] = pos.get("Z").cloned().unwrap_or(serde_json::json!(0.0));
             }
-            cmd["CFrame"] = new_cf;
+            cmd["CFrame"] = NewCf;
         }
         break;
     }
@@ -1605,7 +1605,7 @@ pub fn renderer_rotate_drag(
         s.drag_undo_pushed = true;
     }
 
-    let plane_normal = match axis.as_str() {
+    let PlaneNormal = match axis.as_str() {
         "X" => glam::Vec3::X,
         "Y" => glam::Vec3::Y,
         "Z" => glam::Vec3::Z,
@@ -1640,47 +1640,47 @@ pub fn renderer_rotate_drag(
         }
     };
 
-    let to_ndc =
+    let ToNdc =
         |sx: f32, sy: f32| -> (f32, f32) { ((sx / width) * 2.0 - 1.0, 1.0 - (sy / height) * 2.0) };
-    let (pnx, pny) = to_ndc(prev_x, prev_y);
-    let (cnx, cny) = to_ndc(curr_x, curr_y);
+    let (pnx, pny) = ToNdc(prev_x, prev_y);
+    let (cnx, cny) = ToNdc(curr_x, curr_y);
     let (po, pd) = s.camera.GetRay(pnx, pny);
     let (co, cd) = s.camera.GetRay(cnx, cny);
 
-    let plane_intersect = |ray_o: glam::Vec3, ray_d: glam::Vec3| -> Option<glam::Vec3> {
-        let denom = plane_normal.dot(ray_d);
+    let PlaneIntersect = |ray_o: glam::Vec3, ray_d: glam::Vec3| -> Option<glam::Vec3> {
+        let denom = PlaneNormal.dot(ray_d);
         if denom.abs() < 1e-6 {
             return None;
         }
-        let t = plane_normal.dot(PartPos - ray_o) / denom;
+        let t = PlaneNormal.dot(PartPos - ray_o) / denom;
         if t < 0.0 {
             return None;
         }
         Some(ray_o + ray_d * t)
     };
 
-    let prev_pt = match plane_intersect(po, pd) {
+    let PrevPt = match PlaneIntersect(po, pd) {
         Some(p) => p,
         None => return Ok(None),
     };
-    let curr_pt = match plane_intersect(co, cd) {
+    let CurrPt = match PlaneIntersect(co, cd) {
         Some(p) => p,
         None => return Ok(None),
     };
 
-    let v_prev = prev_pt - PartPos;
-    let v_curr = curr_pt - PartPos;
-    if v_prev.length() < 1e-6 || v_curr.length() < 1e-6 {
+    let VPrev = PrevPt - PartPos;
+    let VCurr = CurrPt - PartPos;
+    if VPrev.length() < 1e-6 || VCurr.length() < 1e-6 {
         return Ok(None);
     }
-    let v_prev = v_prev.normalize();
-    let v_curr = v_curr.normalize();
+    let VPrev = VPrev.normalize();
+    let VCurr = VCurr.normalize();
 
-    let cos_a = v_prev.dot(v_curr).clamp(-1.0, 1.0);
-    let sin_a = v_prev.cross(v_curr).dot(plane_normal);
-    let angle = sin_a.atan2(cos_a);
+    let CosA = VPrev.dot(VCurr).clamp(-1.0, 1.0);
+    let SinA = VPrev.cross(VCurr).dot(PlaneNormal);
+    let angle = SinA.atan2(CosA);
 
-    let rot_key = match axis.as_str() {
+    let RotKey = match axis.as_str() {
         "X" => "RX",
         "Y" => "RY",
         _ => "RZ",
@@ -1695,32 +1695,32 @@ pub fn renderer_rotate_drag(
         }
         let cur: f32 = cmd
             .get("CFrame")
-            .and_then(|cf| cf.get(rot_key))
+            .and_then(|cf| cf.get(RotKey))
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0) as f32;
-        let new_r = cur + angle;
+        let NewR = cur + angle;
         let cf = cmd.get("CFrame").cloned().unwrap_or_else(|| {
             let pos = cmd.get("Position").cloned().unwrap_or(serde_json::json!({}));
             serde_json::json!({ "X": pos["X"], "Y": pos["Y"], "Z": pos["Z"], "RX": 0, "RY": 0, "RZ": 0 })
         });
-        let mut new_cf = cf;
-        new_cf[rot_key] = serde_json::json!(new_r);
-        let rx = if rot_key == "RX" {
-            new_r
+        let mut NewCf = cf;
+        NewCf[RotKey] = serde_json::json!(NewR);
+        let rx = if RotKey == "RX" {
+            NewR
         } else {
-            new_cf.get("RX").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+            NewCf.get("RX").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
         };
-        let ry = if rot_key == "RY" {
-            new_r
+        let ry = if RotKey == "RY" {
+            NewR
         } else {
-            new_cf.get("RY").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+            NewCf.get("RY").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
         };
-        let rz = if rot_key == "RZ" {
-            new_r
+        let rz = if RotKey == "RZ" {
+            NewR
         } else {
-            new_cf.get("RZ").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+            NewCf.get("RZ").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
         };
-        cmd["CFrame"] = new_cf;
+        cmd["CFrame"] = NewCf;
         result = Some([rx, ry, rz]);
         break;
     }
@@ -1759,7 +1759,7 @@ pub fn renderer_scale_drag(
         s.drag_undo_pushed = true;
     }
 
-    let axis_dir = match axis.as_str() {
+    let AxisDir = match axis.as_str() {
         "X" => glam::Vec3::X,
         "Y" => glam::Vec3::Y,
         "Z" => glam::Vec3::Z,
@@ -1794,18 +1794,18 @@ pub fn renderer_scale_drag(
         }
     };
 
-    let to_ndc =
+    let ToNdc =
         |sx: f32, sy: f32| -> (f32, f32) { ((sx / width) * 2.0 - 1.0, 1.0 - (sy / height) * 2.0) };
-    let (pnx, pny) = to_ndc(prev_x, prev_y);
-    let (cnx, cny) = to_ndc(curr_x, curr_y);
+    let (pnx, pny) = ToNdc(prev_x, prev_y);
+    let (cnx, cny) = ToNdc(curr_x, curr_y);
     let (po, pd) = s.camera.GetRay(pnx, pny);
     let (co, cd) = s.camera.GetRay(cnx, cny);
 
-    let t_prev = ClosestTOnLine(po, pd, PartPos, axis_dir);
-    let t_curr = ClosestTOnLine(co, cd, PartPos, axis_dir);
-    let delta = t_curr - t_prev;
+    let TPrev = ClosestTOnLine(po, pd, PartPos, AxisDir);
+    let TCurr = ClosestTOnLine(co, cd, PartPos, AxisDir);
+    let delta = TCurr - TPrev;
 
-    let size_key = axis.as_str();
+    let SizeKey = axis.as_str();
     let mut result = None;
     for cmd in &mut s.commands {
         if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
@@ -1816,11 +1816,11 @@ pub fn renderer_scale_drag(
         }
         if let Some(size_obj) = cmd.get_mut("Size") {
             let cur: f32 = size_obj
-                .get(size_key)
+                .get(SizeKey)
                 .and_then(|v| v.as_f64())
                 .unwrap_or(1.0) as f32;
-            let new_s = (cur + delta * 2.0).max(0.05);
-            size_obj[size_key] = serde_json::json!(new_s);
+            let NewS = (cur + delta * 2.0).max(0.05);
+            size_obj[SizeKey] = serde_json::json!(NewS);
             let sx = size_obj.get("X").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
             let sy = size_obj.get("Y").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
             let sz = size_obj.get("Z").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
@@ -1906,12 +1906,12 @@ pub fn renderer_frame_selected(renderer: State<'_, RendererState>) -> Result<(),
     let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
 
-    let target_pos: Option<glam::Vec3>;
-    let target_size: f32;
+    let TargetPos: Option<glam::Vec3>;
+    let TargetSize: f32;
 
     if let Some(sel_id) = s.selected.clone() {
-        let mut found_pos = None;
-        let mut found_size = 4.0_f32;
+        let mut FoundPos = None;
+        let mut FoundSize = 4.0_f32;
         for cmd in &s.commands {
             if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
                 continue;
@@ -1931,12 +1931,12 @@ pub fn renderer_frame_selected(renderer: State<'_, RendererState>) -> Result<(),
             let sx = gf("Size", "X", 2.0);
             let sy = gf("Size", "Y", 2.0);
             let sz = gf("Size", "Z", 2.0);
-            found_pos = Some(glam::Vec3::new(px, py, pz));
-            found_size = sx.max(sy).max(sz);
+            FoundPos = Some(glam::Vec3::new(px, py, pz));
+            FoundSize = sx.max(sy).max(sz);
             break;
         }
-        target_pos = found_pos;
-        target_size = found_size;
+        TargetPos = FoundPos;
+        TargetSize = FoundSize;
     } else {
         // Frame all: compute AABB center of all parts
         let mut min = glam::Vec3::splat(f32::MAX);
@@ -1968,15 +1968,15 @@ pub fn renderer_frame_selected(renderer: State<'_, RendererState>) -> Result<(),
         }
         if any {
             let center = (min + max) * 0.5;
-            target_pos = Some(center);
-            target_size = (max - min).length();
+            TargetPos = Some(center);
+            TargetSize = (max - min).length();
         } else {
             return Ok(());
         }
     }
 
-    if let Some(pos) = target_pos {
-        let dist = target_size * 2.5 + 5.0;
+    if let Some(pos) = TargetPos {
+        let dist = TargetSize * 2.5 + 5.0;
         let eye = pos + glam::Vec3::new(dist * 0.6, dist * 0.5, dist * 0.6);
         s.camera.SetFromEyeTarget(eye.to_array(), pos.to_array());
         s.dirty = true;
@@ -2082,19 +2082,19 @@ pub fn ai_get_config() -> AiConfigStatus {
 
 #[tauri::command]
 pub fn ai_launch_keyman() -> Result<(), String> {
-    let exe_dir = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_dir.parent().ok_or("Cannot determine exe directory")?;
-    let dev_keyman = exe_dir.join("nyx-keyman.exe");
-    let resource_keyman = exe_dir
+    let ExeDir = std::env::current_exe().map_err(|e| e.to_string())?;
+    let ExeDir = ExeDir.parent().ok_or("Cannot determine exe directory")?;
+    let DevKeyman = ExeDir.join("nyx-keyman.exe");
+    let ResourceKeyman = ExeDir
         .join("resources")
         .join("extra-bin")
         .join("nyx-keyman.exe");
-    let keyman = if dev_keyman.exists() {
-        dev_keyman
-    } else if resource_keyman.exists() {
-        resource_keyman
+    let keyman = if DevKeyman.exists() {
+        DevKeyman
+    } else if ResourceKeyman.exists() {
+        ResourceKeyman
     } else {
-        dev_keyman
+        DevKeyman
     };
 
     std::process::Command::new(&keyman)
@@ -2109,23 +2109,23 @@ fn PowershellQuote(value: &str) -> String {
 
 #[tauri::command]
 pub fn ai_launch_nyx_cli(workspace: Option<String>) -> Result<(), String> {
-    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_path.parent().ok_or("Cannot determine exe directory")?;
+    let ExePath = std::env::current_exe().map_err(|e| e.to_string())?;
+    let ExeDir = ExePath.parent().ok_or("Cannot determine exe directory")?;
 
-    let installed_cli = exe_dir.join("NyxCli").join("NyxCli.exe");
-    let dev_cli = exe_dir.join("NyxCli.exe");
-    let resource_cli = exe_dir
+    let InstalledCli = ExeDir.join("NyxCli").join("NyxCli.exe");
+    let DevCli = ExeDir.join("NyxCli.exe");
+    let ResourceCli = ExeDir
         .join("resources")
         .join("extra-bin")
         .join("NyxCli.exe");
-    let cli = if installed_cli.exists() {
-        installed_cli
-    } else if dev_cli.exists() {
-        dev_cli
-    } else if resource_cli.exists() {
-        resource_cli
+    let cli = if InstalledCli.exists() {
+        InstalledCli
+    } else if DevCli.exists() {
+        DevCli
+    } else if ResourceCli.exists() {
+        ResourceCli
     } else {
-        installed_cli
+        InstalledCli
     };
 
     let mut command = format!("& {}", PowershellQuote(&cli.to_string_lossy()));
@@ -2157,7 +2157,7 @@ pub async fn ai_start_agent(
     window: tauri::Window,
     approval: State<'_, Arc<Mutex<agent::ApprovalState>>>,
 ) -> Result<(), String> {
-    let (api_key, model, is_anthropic) = match provider.as_str() {
+    let (ApiKey, model, is_anthropic) = match provider.as_str() {
         "anthropic" => {
             let k = KrGet(KEYRING_ANTHROPIC).ok_or("Anthropic API key not configured")?;
             (k, "claude-sonnet-4-6".to_string(), true)
@@ -2169,41 +2169,49 @@ pub async fn ai_start_agent(
         _ => return Err(format!("Unknown provider: {provider}")),
     };
 
-    let global_memory = {
+    {
+        let mut settings = get_app_settings();
+        if settings.DefaultProvider != provider {
+            settings.DefaultProvider = provider.clone();
+            let _ = save_app_settings(settings);
+        }
+    }
+
+    let GlobalMemory = {
         let appdata = std::env::var("APPDATA").unwrap_or_default();
         std::path::PathBuf::from(appdata)
             .join("Nyx")
             .join("NyxMemory")
     };
-    let project_memory = workspace
+    let ProjectMemory = workspace
         .as_ref()
         .map(|w| std::path::PathBuf::from(w).join(".nyx").join("memory"));
 
     let settings = get_app_settings();
-    let tool_settings = agent::ToolSettings {
+    let ToolSettings = agent::ToolSettings {
         workspace_path: workspace.clone(),
         obsidian_vault_path: settings.obsidian_vault_path,
-        global_memory_path: global_memory,
-        project_memory_path: project_memory,
+        global_memory_path: GlobalMemory,
+        project_memory_path: ProjectMemory,
     };
 
-    let api_messages: Vec<serde_json::Value> = messages
+    let ApiMessages: Vec<serde_json::Value> = messages
         .iter()
         .map(|m| serde_json::json!({"role": m.role, "content": m.content}))
         .collect();
 
-    let agent_mode = agent::AgentMode::FromStr(&mode);
-    let system = agent::BuildSystemPrompt(workspace.as_deref(), &agent_mode);
+    let AgentMode = agent::AgentMode::FromStr(&mode);
+    let system = agent::BuildSystemPrompt(workspace.as_deref(), &AgentMode);
 
     let result = agent::RunAgent(
-        api_messages,
+        ApiMessages,
         system,
-        &api_key,
+        &ApiKey,
         &model,
         is_anthropic,
-        tool_settings,
+        ToolSettings,
         Arc::clone(&*approval),
-        agent_mode,
+        AgentMode,
         window.clone(),
     )
     .await;

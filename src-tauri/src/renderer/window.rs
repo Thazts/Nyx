@@ -167,12 +167,12 @@ fn ClosestT(ro: glam::Vec3, rd: glam::Vec3, lo: glam::Vec3, ld: glam::Vec3) -> f
 }
 
 fn GizmoMetrics(sx: f32, sy: f32, sz: f32) -> (f32, f32, f32, f32) {
-    let max_size = sx.max(sy).max(sz).max(0.001);
-    let len = (max_size * 0.9).clamp(6.0, 600.0);
-    let move_pick = (len * 0.08).clamp(0.8, 40.0);
-    let scale_pick = (len * 0.12).clamp(1.0, 50.0);
-    let rotate_pick = ((max_size * 0.5 + (len * 0.06).clamp(0.35, 24.0)) * 0.04).clamp(0.4, 40.0);
-    (len, move_pick, scale_pick, rotate_pick)
+    let MaxSize = sx.max(sy).max(sz).max(0.001);
+    let len = (MaxSize * 0.9).clamp(6.0, 600.0);
+    let MovePick = (len * 0.08).clamp(0.8, 40.0);
+    let ScalePick = (len * 0.12).clamp(1.0, 50.0);
+    let RotatePick = ((MaxSize * 0.5 + (len * 0.06).clamp(0.35, 24.0)) * 0.04).clamp(0.4, 40.0);
+    (len, MovePick, ScalePick, RotatePick)
 }
 
 fn PushUndo(s: &SceneState, u: &mut UndoHistory) {
@@ -213,9 +213,9 @@ fn ReconcilePhysics(s: &mut SceneState) {
     s.physics = physics;
 }
 
-fn GizmoHit(s: &SceneState, ndc_x: f32, ndc_y: f32) -> Option<String> {
+fn GizmoHit(s: &SceneState, NdcX: f32, NdcY: f32) -> Option<String> {
     let sel = s.selected.as_ref()?.clone();
-    let (o, d) = s.camera.GetRay(ndc_x, ndc_y);
+    let (o, d) = s.camera.GetRay(NdcX, NdcY);
 
     for cmd in &s.commands {
         if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
@@ -238,7 +238,7 @@ fn GizmoHit(s: &SceneState, ndc_x: f32, ndc_y: f32) -> Option<String> {
         let sx = gf("Size", "X");
         let sy = gf("Size", "Y");
         let sz = gf("Size", "Z");
-        let (len, move_pick, scale_pick, rotate_pick) = GizmoMetrics(sx, sy, sz);
+        let (len, MovePick, ScalePick, RotatePick) = GizmoMetrics(sx, sy, sz);
 
         return match s.gizmo_mode.as_str() {
             "rotate" => {
@@ -254,7 +254,7 @@ fn GizmoHit(s: &SceneState, ndc_x: f32, ndc_y: f32) -> Option<String> {
                         return None;
                     }
                     let dist = ((o + d * t - c).length() - r).abs();
-                    if dist < rotate_pick {
+                    if dist < RotatePick {
                         Some(dist)
                     } else {
                         None
@@ -282,7 +282,7 @@ fn GizmoHit(s: &SceneState, ndc_x: f32, ndc_y: f32) -> Option<String> {
                         let t = v.dot(d);
                         (*ax, (v - d * t).length())
                     })
-                    .filter(|(_, dist)| *dist < scale_pick)
+                    .filter(|(_, dist)| *dist < ScalePick)
                     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
                     .map(|(ax, _)| ax.into())
             }
@@ -290,11 +290,11 @@ fn GizmoHit(s: &SceneState, ndc_x: f32, ndc_y: f32) -> Option<String> {
                 let dx = RaySegDist(o, d, c, c + glam::Vec3::X * len);
                 let dy = RaySegDist(o, d, c, c + glam::Vec3::Y * len);
                 let dz = RaySegDist(o, d, c, c + glam::Vec3::Z * len);
-                if dx < move_pick && dx < dy && dx < dz {
+                if dx < MovePick && dx < dy && dx < dz {
                     Some("X".into())
-                } else if dy < move_pick && dy < dz {
+                } else if dy < MovePick && dy < dz {
                     Some("Y".into())
-                } else if dz < move_pick {
+                } else if dz < MovePick {
                     Some("Z".into())
                 } else {
                     None
@@ -305,10 +305,10 @@ fn GizmoHit(s: &SceneState, ndc_x: f32, ndc_y: f32) -> Option<String> {
     None
 }
 
-fn ClickSelect(s: &mut SceneState, ndc_x: f32, ndc_y: f32) -> Option<String> {
-    let (o, d) = s.camera.GetRay(ndc_x, ndc_y);
-    let mut best_t = f32::MAX;
-    let mut best_id: Option<String> = None;
+fn ClickSelect(s: &mut SceneState, NdcX: f32, NdcY: f32) -> Option<String> {
+    let (o, d) = s.camera.GetRay(NdcX, NdcY);
+    let mut BestT = f32::MAX;
+    let mut BestId: Option<String> = None;
     for cmd in &s.commands {
         if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
             continue;
@@ -331,18 +331,18 @@ fn ClickSelect(s: &mut SceneState, ndc_x: f32, ndc_y: f32) -> Option<String> {
             gf("Size", "Z", 1.),
         ) * 0.5;
         if let Some(t) = RayAabb(o, d, c - e, c + e) {
-            if t < best_t {
-                best_t = t;
-                best_id = cmd
+            if t < BestT {
+                BestT = t;
+                BestId = cmd
                     .get("Id")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
             }
         }
     }
-    s.selected = best_id.clone();
+    s.selected = BestId.clone();
     s.dirty = true;
-    best_id
+    BestId
 }
 
 fn DoMoveDrag(
@@ -438,12 +438,12 @@ fn DoRotateDrag(
             Some(ro + rd * t)
         }
     };
-    let (prev_pt, curr_pt) = match (isect(po, pd), isect(co, cd)) {
+    let (PrevPt, CurrPt) = match (isect(po, pd), isect(co, cd)) {
         (Some(a), Some(b)) => (a, b),
         _ => return,
     };
-    let vp = prev_pt - pp;
-    let vc = curr_pt - pp;
+    let vp = PrevPt - pp;
+    let vc = CurrPt - pp;
     if vp.length() < 1e-6 || vc.length() < 1e-6 {
         return;
     }
@@ -764,9 +764,9 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
     }
 }
 
-pub fn CreateChildWindow(parent_hwnd: isize) -> Result<isize, String> {
+pub fn CreateChildWindow(ParentHwnd: isize) -> Result<isize, String> {
     unsafe {
-        let class_name = wide("NyxRendererClass");
+        let ClassName = wide("NyxRendererClass");
         let instance = GetModuleHandleW(std::ptr::null());
 
         let wc = WNDCLASSEXW {
@@ -780,21 +780,21 @@ pub fn CreateChildWindow(parent_hwnd: isize) -> Result<isize, String> {
             hCursor: LoadCursorW(0, IDC_ARROW),
             hbrBackground: 0,
             lpszMenuName: std::ptr::null(),
-            lpszClassName: class_name.as_ptr(),
+            lpszClassName: ClassName.as_ptr(),
             hIconSm: 0,
         };
         RegisterClassExW(&wc);
 
         let hwnd = CreateWindowExW(
             0,
-            class_name.as_ptr(),
+            ClassName.as_ptr(),
             wide("NyxRenderer").as_ptr(),
             WS_CHILD | WS_CLIPSIBLINGS,
             0,
             0,
             1,
             1,
-            parent_hwnd as HWND,
+            ParentHwnd as HWND,
             0,
             instance,
             std::ptr::null(),

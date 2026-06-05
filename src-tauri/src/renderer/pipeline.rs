@@ -24,13 +24,13 @@ impl RenderState {
             let win32 = Win32WindowHandle::new(
                 NonZeroIsize::new(hwnd).ok_or("Invalid HWND — cannot be zero")?,
             );
-            let raw_window = RawWindowHandle::Win32(win32);
-            let raw_display = RawDisplayHandle::Windows(WindowsDisplayHandle::new());
+            let RawWindow = RawWindowHandle::Win32(win32);
+            let RawDisplay = RawDisplayHandle::Windows(WindowsDisplayHandle::new());
 
             instance
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                    raw_display_handle: raw_display,
-                    raw_window_handle: raw_window,
+                    raw_display_handle: RawDisplay,
+                    raw_window_handle: RawWindow,
                 })
                 .map_err(|e| format!("create_surface_unsafe: {e}"))?
         };

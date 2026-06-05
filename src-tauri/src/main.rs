@@ -20,7 +20,7 @@ fn main() {
         .setup(|app| {
             let main_window = app.get_window("main").ok_or("main window not found")?;
 
-            let parent_hwnd = {
+            let ParentHwnd = {
                 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
                 match main_window.raw_window_handle() {
                     RawWindowHandle::Win32(h) => h.hwnd as isize,
@@ -32,7 +32,7 @@ fn main() {
                 std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("icons/icon.ico"),
             ));
 
-            match NyxRenderer::new(parent_hwnd, app.handle()) {
+            match NyxRenderer::new(ParentHwnd, app.handle()) {
                 Ok(r) => {
                     app.manage(Arc::new(Mutex::new(r)));
                 }

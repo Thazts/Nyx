@@ -137,8 +137,8 @@ async fn AsyncMain() -> Result<(), String> {
     let options = ParseArgs(&settings)?;
 
     let (model, is_anthropic) = ProviderModel(&options.provider)?;
-    let api_key = ProviderKey(&options.provider);
-    let tool_settings = BuildToolSettings(&settings, options.workspace.clone())?;
+    let ApiKey = ProviderKey(&options.provider);
+    let ToolSettings = BuildToolSettings(&settings, options.workspace.clone())?;
     let mode = agent::AgentMode::FromStr(&options.mode);
     let system = agent::BuildSystemPrompt(options.workspace.as_deref(), &mode);
     let mut messages: Vec<Value> = Vec::new();
@@ -155,7 +155,7 @@ async fn AsyncMain() -> Result<(), String> {
             .unwrap_or_else(|| "not set".to_string()),
         activity: "Starting NyxCli".to_string(),
     };
-    header.top_up = if let Some(key) = api_key.as_ref() {
+    header.top_up = if let Some(key) = ApiKey.as_ref() {
         AnimateBalanceHeader(&mut header, &options.provider, key.as_str()).await
     } else {
         "key missing".to_string()
@@ -164,7 +164,7 @@ async fn AsyncMain() -> Result<(), String> {
     RenderHeader(&header);
 
     if let Some(prompt) = options.initial_prompt {
-        if let Some(key) = api_key.as_ref() {
+        if let Some(key) = ApiKey.as_ref() {
             RunPrompt(
                 &mut messages,
                 prompt,
@@ -172,7 +172,7 @@ async fn AsyncMain() -> Result<(), String> {
                 key.as_str(),
                 &model,
                 is_anthropic,
-                &tool_settings,
+                &ToolSettings,
                 &mode,
             )
             .await?;
@@ -202,7 +202,7 @@ async fn AsyncMain() -> Result<(), String> {
             continue;
         }
 
-        let Some(key) = api_key.as_ref() else {
+        let Some(key) = ApiKey.as_ref() else {
             println!("{}", MissingKeyMessage(&options.provider));
             continue;
         };
@@ -214,7 +214,7 @@ async fn AsyncMain() -> Result<(), String> {
             key.as_str(),
             &model,
             is_anthropic,
-            &tool_settings,
+            &ToolSettings,
             &mode,
         )
         .await?;
@@ -227,10 +227,10 @@ fn ParseArgs(settings: &AppSettings) -> Result<CliOptions, String> {
     let mut workspace: Option<String> = None;
     let mut provider = settings.DefaultProvider.clone();
     let mut mode = settings.ai_mode.clone();
-    let mut context_limit = env::var("NYX_CONTEXT_LIMIT")
+    let mut ContextLimit = env::var("NYX_CONTEXT_LIMIT")
         .ok()
         .filter(|value| !value.trim().is_empty());
-    let mut prompt_parts: Vec<String> = Vec::new();
+    let mut PromptParts: Vec<String> = Vec::new();
 
     let mut args = env::args().skip(1).peekable();
     while let Some(arg) = args.next() {
@@ -249,7 +249,7 @@ fn ParseArgs(settings: &AppSettings) -> Result<CliOptions, String> {
                 mode = args.next().ok_or("Missing value for --mode")?;
             }
             "--context-limit" => {
-                context_limit = Some(args.next().ok_or("Missing value for --context-limit")?);
+                ContextLimit = Some(args.next().ok_or("Missing value for --context-limit")?);
             }
             _ if arg.starts_with("--workspace=") => {
                 workspace = Some(arg.trim_start_matches("--workspace=").to_string());
@@ -261,9 +261,9 @@ fn ParseArgs(settings: &AppSettings) -> Result<CliOptions, String> {
                 mode = arg.trim_start_matches("--mode=").to_string();
             }
             _ if arg.starts_with("--context-limit=") => {
-                context_limit = Some(arg.trim_start_matches("--context-limit=").to_string());
+                ContextLimit = Some(arg.trim_start_matches("--context-limit=").to_string());
             }
-            _ => prompt_parts.push(arg),
+            _ => PromptParts.push(arg),
         }
     }
 
@@ -278,18 +278,18 @@ fn ParseArgs(settings: &AppSettings) -> Result<CliOptions, String> {
         ));
     }
 
-    let initial_prompt = if prompt_parts.is_empty() {
+    let InitialPrompt = if PromptParts.is_empty() {
         None
     } else {
-        Some(prompt_parts.join(" "))
+        Some(PromptParts.join(" "))
     };
 
     Ok(CliOptions {
         workspace,
         provider,
         mode,
-        context_limit,
-        initial_prompt,
+        context_limit: ContextLimit,
+        initial_prompt: InitialPrompt,
     })
 }
 
@@ -342,9 +342,9 @@ fn ReadPrompt() -> Result<Option<String>, String> {
     let _raw = RawModeGuard::new()?;
     let mut input = String::new();
     let mut selected = 0usize;
-    let mut rendered_lines = 0u16;
+    let mut RenderedLines = 0u16;
 
-    RenderPromptInput(&input, selected, &mut rendered_lines)?;
+    RenderPromptInput(&input, selected, &mut RenderedLines)?;
 
     loop {
         let Event::Key(key) = event::read().map_err(|error| error.to_string())? else {
@@ -356,13 +356,13 @@ fn ReadPrompt() -> Result<Option<String>, String> {
 
         match key.code {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                CleanupPromptRender(rendered_lines)?;
+                CleanupPromptRender(RenderedLines)?;
                 drop(_raw);
                 println!();
                 return Ok(None);
             }
             KeyCode::Enter => {
-                CleanupPromptRender(rendered_lines)?;
+                CleanupPromptRender(RenderedLines)?;
                 drop(_raw);
                 println!("> {}", input);
                 return Ok(Some(input));
@@ -413,7 +413,7 @@ fn ReadPrompt() -> Result<Option<String>, String> {
         } else if selected >= count {
             selected = count - 1;
         }
-        RenderPromptInput(&input, selected, &mut rendered_lines)?;
+        RenderPromptInput(&input, selected, &mut RenderedLines)?;
     }
 }
 
@@ -430,20 +430,20 @@ fn CommandSuggestions(input: &str) -> Vec<CommandSuggestion> {
         .collect()
 }
 
-fn CleanupPromptRender(rendered_lines: u16) -> Result<(), String> {
+fn CleanupPromptRender(RenderedLines: u16) -> Result<(), String> {
     let mut stdout = io::stdout();
-    if rendered_lines > 1 {
-        execute!(stdout, MoveUp(rendered_lines - 1)).map_err(|error| error.to_string())?;
+    if RenderedLines > 1 {
+        execute!(stdout, MoveUp(RenderedLines - 1)).map_err(|error| error.to_string())?;
     }
     execute!(stdout, MoveToColumn(0), Clear(ClearType::FromCursorDown))
         .map_err(|error| error.to_string())?;
     Ok(())
 }
 
-fn RenderPromptInput(input: &str, selected: usize, rendered_lines: &mut u16) -> Result<(), String> {
+fn RenderPromptInput(input: &str, selected: usize, RenderedLines: &mut u16) -> Result<(), String> {
     let mut stdout = io::stdout();
-    if *rendered_lines > 1 {
-        execute!(stdout, MoveUp(*rendered_lines - 1)).map_err(|error| error.to_string())?;
+    if *RenderedLines > 1 {
+        execute!(stdout, MoveUp(*RenderedLines - 1)).map_err(|error| error.to_string())?;
     }
     execute!(stdout, MoveToColumn(0), Clear(ClearType::FromCursorDown))
         .map_err(|error| error.to_string())?;
@@ -540,19 +540,19 @@ fn RenderPromptInput(input: &str, selected: usize, rendered_lines: &mut u16) -> 
         .map_err(|error| error.to_string())?;
     }
     stdout.flush().map_err(|error| error.to_string())?;
-    *rendered_lines = lines;
+    *RenderedLines = lines;
     Ok(())
 }
 
-async fn FetchTopUpStatus(provider: &str, api_key: &str) -> String {
+async fn FetchTopUpStatus(provider: &str, ApiKey: &str) -> String {
     match provider {
-        "deepseek" => FetchDeepseekBalance(api_key).await,
+        "deepseek" => FetchDeepseekBalance(ApiKey).await,
         "anthropic" => "Console billing page".to_string(),
         _ => "unavailable".to_string(),
     }
 }
 
-async fn FetchDeepseekBalance(api_key: &str) -> String {
+async fn FetchDeepseekBalance(ApiKey: &str) -> String {
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(4))
         .build()
@@ -563,7 +563,7 @@ async fn FetchDeepseekBalance(api_key: &str) -> String {
 
     let response = match client
         .get("https://api.deepseek.com/user/balance")
-        .bearer_auth(api_key)
+        .bearer_auth(ApiKey)
         .send()
         .await
     {
@@ -600,7 +600,7 @@ async fn FetchDeepseekBalance(api_key: &str) -> String {
     };
 
     let currency = info.get("currency").and_then(Value::as_str).unwrap_or("");
-    let topped_up = info
+    let ToppedUp = info
         .get("topped_up_balance")
         .and_then(Value::as_str)
         .unwrap_or("?");
@@ -609,11 +609,11 @@ async fn FetchDeepseekBalance(api_key: &str) -> String {
         .and_then(Value::as_str)
         .unwrap_or("?");
 
-    format!("{currency} {topped_up} top-up | {total} total | {available}")
+    format!("{currency} {ToppedUp} top-up | {total} total | {available}")
 }
 
-async fn AnimateBalanceHeader(header: &mut CliHeader, provider: &str, api_key: &str) -> String {
-    let mut balance = Box::pin(FetchTopUpStatus(provider, api_key));
+async fn AnimateBalanceHeader(header: &mut CliHeader, provider: &str, ApiKey: &str) -> String {
+    let mut balance = Box::pin(FetchTopUpStatus(provider, ApiKey));
     let frames = ["-", "\\", "|", "/"];
     let mut frame = 0usize;
 
@@ -752,7 +752,7 @@ fn SessionPanelLines(header: &CliHeader) -> Vec<Line<'static>> {
 }
 
 fn WelcomePanelLines(header: &CliHeader) -> Vec<Line<'static>> {
-    let mode_hint = match header.mode.as_str() {
+    let ModeHint = match header.mode.as_str() {
         "autonomous" => "Autonomous mode executes allowed tools directly.",
         "agentic" => "Agentic mode uses sliced autonomous work with memory checkpoints.",
         _ => "Supervised mode asks before writes/commands.",
@@ -780,7 +780,7 @@ fn WelcomePanelLines(header: &CliHeader) -> Vec<Line<'static>> {
         ]),
         Line::from(vec![
             Span::styled(">", Style::default().fg(Color::Rgb(212, 176, 204))),
-            Span::raw(format!(" {mode_hint}")),
+            Span::raw(format!(" {ModeHint}")),
         ]),
     ]
 }
@@ -872,7 +872,7 @@ fn TruncateChars(value: &str, limit: usize) -> String {
 fn SettingsPath() -> Option<PathBuf> {
     env::var("APPDATA")
         .ok()
-        .map(|app_data| PathBuf::from(app_data).join("Nyx").join("settings.json"))
+        .map(|AppData| PathBuf::from(AppData).join("Nyx").join("settings.json"))
 }
 
 fn LoadAppSettings() -> AppSettings {
@@ -921,17 +921,17 @@ fn BuildToolSettings(
     settings: &AppSettings,
     workspace: Option<String>,
 ) -> Result<agent::ToolSettings, String> {
-    let app_data = env::var("APPDATA").map_err(|_| "Cannot determine AppData path".to_string())?;
-    let global_memory = PathBuf::from(app_data).join("Nyx").join("NyxMemory");
-    let project_memory = workspace
+    let AppData = env::var("APPDATA").map_err(|_| "Cannot determine AppData path".to_string())?;
+    let GlobalMemory = PathBuf::from(AppData).join("Nyx").join("NyxMemory");
+    let ProjectMemory = workspace
         .as_ref()
         .map(|path| PathBuf::from(path).join(".nyx").join("memory"));
 
     Ok(agent::ToolSettings {
         workspace_path: workspace,
         obsidian_vault_path: settings.obsidian_vault_path.clone(),
-        global_memory_path: global_memory,
-        project_memory_path: project_memory,
+        global_memory_path: GlobalMemory,
+        project_memory_path: ProjectMemory,
     })
 }
 
@@ -1221,19 +1221,19 @@ fn RenderCodeLine(line: &str) -> Result<(), String> {
 fn SplitCodeTokens(line: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
-    let mut current_kind: Option<bool> = None;
+    let mut CurrentKind: Option<bool> = None;
     for ch in line.chars() {
-        let is_word = ch.is_alphanumeric() || ch == '_';
-        match current_kind {
-            Some(kind) if kind == is_word => current.push(ch),
+        let IsWord = ch.is_alphanumeric() || ch == '_';
+        match CurrentKind {
+            Some(kind) if kind == IsWord => current.push(ch),
             Some(_) => {
                 tokens.push(std::mem::take(&mut current));
                 current.push(ch);
-                current_kind = Some(is_word);
+                CurrentKind = Some(IsWord);
             }
             None => {
                 current.push(ch);
-                current_kind = Some(is_word);
+                CurrentKind = Some(IsWord);
             }
         }
     }
@@ -1350,20 +1350,20 @@ async fn RunPrompt(
     messages: &mut Vec<Value>,
     prompt: String,
     system: &str,
-    api_key: &str,
+    ApiKey: &str,
     model: &str,
     is_anthropic: bool,
     tool_settings: &agent::ToolSettings,
     mode: &agent::AgentMode,
 ) -> Result<(), String> {
     messages.push(json!({ "role": "user", "content": prompt }));
-    animate_status("Thinking", 5)?;
+    AnimateStatus("Thinking", 5)?;
 
-    let max_iterations = mode.MaxIterations();
+    let MaxIterations = mode.MaxIterations();
     let mut turns_since_checkpoint = 0usize;
 
-    for _ in 0..max_iterations {
-        print_activity("Thinking");
+    for _ in 0..MaxIterations {
+        PrintActivity("Thinking");
         RenderSection(
             "Assistant",
             TermColor::Rgb {
@@ -1373,9 +1373,9 @@ async fn RunPrompt(
             },
         )?;
         let (tool_calls, assistant_message) = if is_anthropic {
-            stream_anthropic(api_key, model, messages, system).await?
+            StreamAnthropic(ApiKey, model, messages, system).await?
         } else {
-            StreamDeepseek(api_key, model, messages).await?
+            StreamDeepseek(ApiKey, model, messages).await?
         };
         messages.push(assistant_message);
 
@@ -1389,9 +1389,9 @@ async fn RunPrompt(
         for tool_call in tool_calls {
             if agent::IsQuestionTool(&tool_call.name) {
                 let request = agent::NormalizeQuestionRequest(&tool_call)?;
-                let response = prompt_question_request(&request)?;
+                let response = PromptQuestionRequest(&request)?;
                 let display = agent::QuestionResponseResult(&request, &response);
-                render_tool_result(&tool_call.name, &display, false)?;
+                RenderToolResult(&tool_call.name, &display, false)?;
                 results.push((
                     tool_call.id.clone(),
                     agent::WrapResult(&tool_call.name, &display),
@@ -1400,9 +1400,9 @@ async fn RunPrompt(
                 continue;
             }
 
-            print_activity(&format!("Tool: {}", tool_call.name));
-            render_tool_call(&tool_call)?;
-            if mode.RequiresApproval(&tool_call.name) && !confirm_tool(&tool_call)? {
+            PrintActivity(&format!("Tool: {}", tool_call.name));
+            RenderToolCall(&tool_call)?;
+            if mode.RequiresApproval(&tool_call.name) && !ConfirmTool(&tool_call)? {
                 results.push((
                     tool_call.id.clone(),
                     agent::WrapResult(&tool_call.name, "Denied by user"),
@@ -1417,10 +1417,10 @@ async fn RunPrompt(
                         checkpoint_saved = true;
                     }
                     if let Some(change) = &outcome.change {
-                        render_change_summary(change)?;
+                        RenderChangeSummary(change)?;
                     }
                     if !outcome.display.trim().is_empty() {
-                        render_tool_result(&tool_call.name, &outcome.display, false)?;
+                        RenderToolResult(&tool_call.name, &outcome.display, false)?;
                     }
                     results.push((
                         tool_call.id.clone(),
@@ -1429,7 +1429,7 @@ async fn RunPrompt(
                     ));
                 }
                 Err(error) => {
-                    render_tool_result(&tool_call.name, &error, true)?;
+                    RenderToolResult(&tool_call.name, &error, true)?;
                     results.push((
                         tool_call.id.clone(),
                         agent::WrapResult(&tool_call.name, &error),
@@ -1462,11 +1462,11 @@ async fn RunPrompt(
     }
 
     Err(format!(
-        "Agent reached maximum tool call iterations ({max_iterations})"
+        "Agent reached maximum tool call iterations ({MaxIterations})"
     ))
 }
 
-fn print_activity(label: &str) {
+fn PrintActivity(label: &str) {
     let _ = StyledPrint(
         "\n[",
         TermColor::Rgb {
@@ -1496,7 +1496,7 @@ fn print_activity(label: &str) {
     );
 }
 
-fn animate_status(label: &str, frames: usize) -> Result<(), String> {
+fn AnimateStatus(label: &str, frames: usize) -> Result<(), String> {
     let spinner = ["-", "\\", "|", "/"];
     let mut stdout = io::stdout();
     for index in 0..frames {
@@ -1521,7 +1521,7 @@ fn animate_status(label: &str, frames: usize) -> Result<(), String> {
     Ok(())
 }
 
-fn prompt_question_request(
+fn PromptQuestionRequest(
     request: &agent::QuestionRequest,
 ) -> Result<agent::QuestionResponse, String> {
     RenderSection(
@@ -1535,7 +1535,7 @@ fn prompt_question_request(
 
     let mut answers = Vec::new();
     for question in &request.questions {
-        let selected = select_question_option(question)?;
+        let selected = SelectQuestionOption(question)?;
         let option = question
             .options
             .get(selected)
@@ -1565,15 +1565,15 @@ fn prompt_question_request(
     Ok(agent::QuestionResponse { answers })
 }
 
-fn select_question_option(question: &agent::UserQuestion) -> Result<usize, String> {
+fn SelectQuestionOption(question: &agent::UserQuestion) -> Result<usize, String> {
     if !io::stdin().is_terminal() {
-        return select_question_option_plain(question);
+        return SelectQuestionOptionPlain(question);
     }
 
     let _raw = RawModeGuard::new()?;
     let mut selected = 0usize;
     let mut rendered_lines = 0u16;
-    render_question_selector(question, selected, &mut rendered_lines)?;
+    RenderQuestionSelector(question, selected, &mut rendered_lines)?;
 
     loop {
         let Event::Key(key) = event::read().map_err(|error| error.to_string())? else {
@@ -1624,11 +1624,11 @@ fn select_question_option(question: &agent::UserQuestion) -> Result<usize, Strin
             _ => {}
         }
 
-        render_question_selector(question, selected, &mut rendered_lines)?;
+        RenderQuestionSelector(question, selected, &mut rendered_lines)?;
     }
 }
 
-fn select_question_option_plain(question: &agent::UserQuestion) -> Result<usize, String> {
+fn SelectQuestionOptionPlain(question: &agent::UserQuestion) -> Result<usize, String> {
     println!("{}", question.question);
     for (index, option) in question.options.iter().enumerate() {
         if option.description.trim().is_empty() {
@@ -1654,7 +1654,7 @@ fn select_question_option_plain(question: &agent::UserQuestion) -> Result<usize,
     Ok(selected)
 }
 
-fn render_question_selector(
+fn RenderQuestionSelector(
     question: &agent::UserQuestion,
     selected: usize,
     rendered_lines: &mut u16,
@@ -1735,7 +1735,7 @@ fn render_question_selector(
     Ok(())
 }
 
-fn render_tool_call(tool_call: &agent::ToolCall) -> Result<(), String> {
+fn RenderToolCall(tool_call: &agent::ToolCall) -> Result<(), String> {
     RenderSection(
         &format!("Tool {}", tool_call.name),
         TermColor::Rgb {
@@ -1744,11 +1744,11 @@ fn render_tool_call(tool_call: &agent::ToolCall) -> Result<(), String> {
             b: 122,
         },
     )?;
-    let summary = compact_json(&tool_call.input);
+    let summary = CompactJson(&tool_call.input);
     RenderTextLine(&FitLine(&summary, 120))
 }
 
-fn render_tool_result(name: &str, text: &str, error: bool) -> Result<(), String> {
+fn RenderToolResult(name: &str, text: &str, error: bool) -> Result<(), String> {
     RenderSection(
         if error { "Tool Error" } else { "Tool Result" },
         if error {
@@ -1765,7 +1765,7 @@ fn render_tool_result(name: &str, text: &str, error: bool) -> Result<(), String>
             }
         },
     )?;
-    if is_change_tool(name) {
+    if IsChangeTool(name) {
         let lines: Vec<&str> = text.lines().collect();
         for line in lines.iter().take(CHANGE_PREVIEW_LINE_LIMIT) {
             if line.starts_with("+ ") {
@@ -1813,7 +1813,7 @@ fn render_tool_result(name: &str, text: &str, error: bool) -> Result<(), String>
     renderer.finish()
 }
 
-fn render_change_summary(change: &agent_runtime::AiChangeEvent) -> Result<(), String> {
+fn RenderChangeSummary(change: &agent_runtime::AiChangeEvent) -> Result<(), String> {
     RenderSection(
         "Change Applied",
         TermColor::Rgb {
@@ -1828,7 +1828,7 @@ fn render_change_summary(change: &agent_runtime::AiChangeEvent) -> Result<(), St
     ))
 }
 
-fn is_change_tool(name: &str) -> bool {
+fn IsChangeTool(name: &str) -> bool {
     matches!(
         name,
         "write_file"
@@ -1842,11 +1842,11 @@ fn is_change_tool(name: &str) -> bool {
     )
 }
 
-fn confirm_tool(tool_call: &agent::ToolCall) -> Result<bool, String> {
+fn ConfirmTool(tool_call: &agent::ToolCall) -> Result<bool, String> {
     println!(
         "\nAllow tool '{}'? {}",
         tool_call.name,
-        compact_json(&tool_call.input)
+        CompactJson(&tool_call.input)
     );
     print!("Approve? [y/N] ");
     io::stdout().flush().map_err(|error| error.to_string())?;
@@ -1858,12 +1858,12 @@ fn confirm_tool(tool_call: &agent::ToolCall) -> Result<bool, String> {
     Ok(matches!(input.trim(), "y" | "Y" | "yes" | "YES"))
 }
 
-fn compact_json(value: &Value) -> String {
+fn CompactJson(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string())
 }
 
-async fn stream_anthropic(
-    api_key: &str,
+async fn StreamAnthropic(
+    ApiKey: &str,
     model: &str,
     messages: &[Value],
     system: &str,
@@ -1872,7 +1872,7 @@ async fn stream_anthropic(
     let tools = agent::ToolDefsAnthropic();
     let response = client
         .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key)
+        .header("x-api-key", ApiKey)
         .header("anthropic-version", "2023-06-01")
         .json(&json!({
             "model": model,
@@ -1936,7 +1936,7 @@ async fn stream_anthropic(
         }));
     }
 
-    let tool_calls = content
+    let ToolCalls = content
         .iter()
         .filter_map(|block| {
             if block.get("type")?.as_str()? != "tool_use" {
@@ -1951,7 +1951,7 @@ async fn stream_anthropic(
         .collect();
 
     Ok((
-        tool_calls,
+        ToolCalls,
         json!({ "role": "assistant", "content": content }),
     ))
 }
@@ -1962,11 +1962,11 @@ fn HandleAnthropicEvent(
     content: &mut Vec<Value>,
     renderer: &mut MarkdownStreamRenderer,
 ) -> Result<(), String> {
-    let event_type = event
+    let EventType = event
         .get("type")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    match event_type {
+    match EventType {
         "content_block_start" => {
             let index = event.get("index").and_then(Value::as_u64).unwrap_or(0);
             let block = event.get("content_block").unwrap_or(&Value::Null);
@@ -2019,7 +2019,7 @@ fn HandleAnthropicEvent(
 }
 
 async fn StreamDeepseek(
-    api_key: &str,
+    ApiKey: &str,
     model: &str,
     messages: &[Value],
 ) -> Result<(Vec<agent::ToolCall>, Value), String> {
@@ -2027,7 +2027,7 @@ async fn StreamDeepseek(
     let tools = agent::ToolDefsOpenai();
     let response = client
         .post("https://api.deepseek.com/chat/completions")
-        .bearer_auth(api_key)
+        .bearer_auth(ApiKey)
         .json(&json!({
             "model": model,
             "messages": messages,
@@ -2045,7 +2045,7 @@ async fn StreamDeepseek(
     }
 
     let mut content = String::new();
-    let mut tool_calls: BTreeMap<u64, OpenAiToolAccumulator> = BTreeMap::new();
+    let mut ToolCalls: BTreeMap<u64, OpenAiToolAccumulator> = BTreeMap::new();
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut renderer = MarkdownStreamRenderer::new();
@@ -2069,12 +2069,12 @@ async fn StreamDeepseek(
                 Ok(event) => event,
                 Err(_) => continue,
             };
-            HandleOpenaiEvent(&event, &mut content, &mut tool_calls, &mut renderer)?;
+            HandleOpenaiEvent(&event, &mut content, &mut ToolCalls, &mut renderer)?;
         }
     }
     renderer.finish()?;
 
-    let calls: Vec<Value> = tool_calls
+    let calls: Vec<Value> = ToolCalls
         .iter()
         .map(|(index, call)| {
             json!({
@@ -2089,7 +2089,7 @@ async fn StreamDeepseek(
         })
         .collect();
 
-    let parsed_calls = tool_calls
+    let ParsedCalls = ToolCalls
         .into_values()
         .map(|call| agent::ToolCall {
             id: call.id,
@@ -2099,7 +2099,7 @@ async fn StreamDeepseek(
         .collect();
 
     Ok((
-        parsed_calls,
+        ParsedCalls,
         json!({
             "role": "assistant",
             "content": if content.is_empty() { Value::Null } else { Value::String(content) },
@@ -2111,7 +2111,7 @@ async fn StreamDeepseek(
 fn HandleOpenaiEvent(
     event: &Value,
     content: &mut String,
-    tool_calls: &mut BTreeMap<u64, OpenAiToolAccumulator>,
+    ToolCalls: &mut BTreeMap<u64, OpenAiToolAccumulator>,
     renderer: &mut MarkdownStreamRenderer,
 ) -> Result<(), String> {
     let Some(delta) = event
@@ -2131,7 +2131,7 @@ fn HandleOpenaiEvent(
     if let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) {
         for call in calls {
             let index = call.get("index").and_then(Value::as_u64).unwrap_or(0);
-            let entry = tool_calls.entry(index).or_default();
+            let entry = ToolCalls.entry(index).or_default();
             if let Some(id) = call.get("id").and_then(Value::as_str) {
                 entry.id = id.to_string();
             }

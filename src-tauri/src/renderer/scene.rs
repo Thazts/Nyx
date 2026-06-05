@@ -147,11 +147,11 @@ fn GridQuad() -> (Vec<GridVertex>, Vec<u16>) {
 }
 
 fn GizmoMetrics(sx: f32, sy: f32, sz: f32) -> (f32, f32, f32, f32) {
-    let max_size = sx.max(sy).max(sz).max(0.001);
-    let len = (max_size * 0.9).clamp(6.0, 600.0);
+    let MaxSize = sx.max(sy).max(sz).max(0.001);
+    let len = (MaxSize * 0.9).clamp(6.0, 600.0);
     let handle = (len * 0.06).clamp(0.35, 24.0);
     let arrow = (len * 0.07).clamp(0.4, 28.0);
-    let radius = (max_size * 0.5 + handle).clamp(1.2, 1200.0);
+    let radius = (MaxSize * 0.5 + handle).clamp(1.2, 1200.0);
     (len, handle, arrow, radius)
 }
 
@@ -186,40 +186,40 @@ impl SceneRenderer {
     ) -> Self {
         let (cube_verts, cube_idx) = CubeMesh();
 
-        let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let VertexBuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("cube.vtx"),
             contents: bytemuck::cast_slice(&cube_verts),
             usage: wgpu::BufferUsages::VERTEX,
         });
-        let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let IndexBuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("cube.idx"),
             contents: bytemuck::cast_slice(&cube_idx),
             usage: wgpu::BufferUsages::INDEX,
         });
-        let index_count = cube_idx.len() as u32;
+        let IndexCount = cube_idx.len() as u32;
 
-        let instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        let InstanceBuf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("instances"),
             size: MAX_INSTANCES * std::mem::size_of::<Instance>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let camera_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        let CameraBuf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("camera"),
             size: std::mem::size_of::<CameraUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let gizmo_vertex_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        let GizmoVertexBuf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("gizmo_verts"),
             size: std::mem::size_of::<GizmoVertex>() as u64 * 512,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let cam_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let CamBgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("cam.bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -233,12 +233,12 @@ impl SceneRenderer {
             }],
         });
 
-        let camera_bind_grp = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let CameraBindGrp = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("cam.bg"),
-            layout: &cam_bgl,
+            layout: &CamBgl,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: camera_buf.as_entire_binding(),
+                resource: CameraBuf.as_entire_binding(),
             }],
         });
 
@@ -252,7 +252,7 @@ impl SceneRenderer {
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("scene.layout"),
-            bind_group_layouts: &[&cam_bgl],
+            bind_group_layouts: &[&CamBgl],
             push_constant_ranges: &[],
         });
 
@@ -313,16 +313,16 @@ impl SceneRenderer {
             multiview: None,
         });
 
-        let gizmo_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let GizmoShader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gizmo.wgsl"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/gizmo.wgsl").into()),
         });
 
-        let gizmo_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let GizmoPipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("gizmo.pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
-                module: &gizmo_shader,
+                module: &GizmoShader,
                 entry_point: "vs_main",
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[wgpu::VertexBufferLayout {
@@ -332,7 +332,7 @@ impl SceneRenderer {
                 }],
             },
             fragment: Some(wgpu::FragmentState {
-                module: &gizmo_shader,
+                module: &GizmoShader,
                 entry_point: "fs_main",
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
@@ -362,16 +362,16 @@ impl SceneRenderer {
             },
             multiview: None,
         });
-        let grid_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let GridShader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("grid.wgsl"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/grid.wgsl").into()),
         });
 
-        let grid_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let GridPipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("grid.pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
-                module: &grid_shader,
+                module: &GridShader,
                 entry_point: "vs_main",
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[wgpu::VertexBufferLayout {
@@ -381,7 +381,7 @@ impl SceneRenderer {
                 }],
             },
             fragment: Some(wgpu::FragmentState {
-                module: &grid_shader,
+                module: &GridShader,
                 entry_point: "fs_main",
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
@@ -413,40 +413,40 @@ impl SceneRenderer {
         });
 
         let (grid_verts, grid_idx) = GridQuad();
-        let grid_vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let GridVertexBuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("grid.vtx"),
             contents: bytemuck::cast_slice(&grid_verts),
             usage: wgpu::BufferUsages::VERTEX,
         });
-        let grid_index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let GridIndexBuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("grid.idx"),
             contents: bytemuck::cast_slice(&grid_idx),
             usage: wgpu::BufferUsages::INDEX,
         });
-        let grid_index_count = grid_idx.len() as u32;
+        let GridIndexCount = grid_idx.len() as u32;
 
         Self {
             pipeline,
-            vertex_buf,
-            index_buf,
-            index_count,
-            instance_buf,
+            vertex_buf: VertexBuf,
+            index_buf: IndexBuf,
+            index_count: IndexCount,
+            instance_buf: InstanceBuf,
             instance_count: 0,
-            camera_buf,
-            camera_bind_grp,
+            camera_buf: CameraBuf,
+            camera_bind_grp: CameraBindGrp,
             msaa_tex,
             msaa_view,
             depth_tex,
             depth_view,
 
-            gizmo_pipeline,
-            gizmo_vertex_buf,
+            gizmo_pipeline: GizmoPipeline,
+            gizmo_vertex_buf: GizmoVertexBuf,
             gizmo_count: 0,
 
-            grid_pipeline,
-            grid_vertex_buf,
-            grid_index_buf,
-            grid_index_count,
+            grid_pipeline: GridPipeline,
+            grid_vertex_buf: GridVertexBuf,
+            grid_index_buf: GridIndexBuf,
+            grid_index_count: GridIndexCount,
         }
     }
 
@@ -519,12 +519,12 @@ impl SceneRenderer {
     pub fn LoadGizmo(
         &mut self,
         queue: &wgpu::Queue,
-        selected_id: Option<&str>,
+        SelectedId: Option<&str>,
         commands: &[serde_json::Value],
         gizmo_mode: &str,
     ) {
         self.gizmo_count = 0;
-        let id = match selected_id {
+        let id = match SelectedId {
             Some(i) => i,
             None => return,
         };
@@ -563,12 +563,12 @@ impl SceneRenderer {
                 "rotate" => {
                     let radius = rotate_radius;
                     let segs = 32usize;
-                    let ring_data: [([f32; 3], u8); 3] = [
+                    let RingData: [([f32; 3], u8); 3] = [
                         ([1.0, 0.15, 0.15], 0), // X ring (YZ plane)
                         ([0.15, 1.0, 0.15], 1), // Y ring (XZ plane)
                         ([0.15, 0.15, 1.0], 2), // Z ring (XY plane)
                     ];
-                    for (color, axis) in &ring_data {
+                    for (color, axis) in &RingData {
                         for i in 0..segs {
                             let a0 = (i as f32) / (segs as f32) * std::f32::consts::TAU;
                             let a1 = ((i + 1) as f32) / (segs as f32) * std::f32::consts::TAU;
@@ -819,7 +819,7 @@ impl SceneRenderer {
             Err(_) => return,
         };
 
-        let frame_view = output
+        let FrameView = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         let mut enc =
@@ -830,7 +830,7 @@ impl SceneRenderer {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.msaa_view,
-                    resolve_target: Some(&frame_view),
+                    resolve_target: Some(&FrameView),
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(sky),
                         store: wgpu::StoreOp::Store,

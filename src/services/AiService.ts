@@ -63,14 +63,21 @@ export const AiService = {
             AiMode:            (R.ai_mode || "supervised") as AiMode,
         })),
 
-    SaveAppSettings: (S: Partial<AppSettings>) =>
-        invoke<void>("save_app_settings", {
+    SaveAppSettings: async (S: Partial<AppSettings>) => {
+        const Current = await AiService.GetAppSettings().catch(() => ({
+            DefaultProvider:   "anthropic" as AiProvider,
+            ObsidianVaultPath: null,
+            AiMode:            "supervised" as AiMode,
+        }));
+
+        return invoke<void>("save_app_settings", {
             settings: {
-                default_provider:    S.DefaultProvider,
-                obsidian_vault_path: S.ObsidianVaultPath ?? null,
-                ai_mode:             S.AiMode ?? "supervised",
+                default_provider:    S.DefaultProvider ?? Current.DefaultProvider,
+                obsidian_vault_path: S.ObsidianVaultPath !== undefined ? S.ObsidianVaultPath : Current.ObsidianVaultPath,
+                ai_mode:             S.AiMode ?? Current.AiMode,
             },
-        }),
+        });
+    },
 
     StartAgent: (
         Provider:  AiProvider,
