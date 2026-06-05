@@ -82,7 +82,12 @@ struct NyxContact {
 impl NyxPhysics {
     pub fn New(Profile: NyxEngineProfile) -> Self {
         let Gravity = Profile.Gravity;
-        Self { Profile, Gravity, Accumulator: 0.0, Bodies: Vec::new() }
+        Self {
+            Profile,
+            Gravity,
+            Accumulator: 0.0,
+            Bodies: Vec::new(),
+        }
     }
 
     pub fn Reset(&mut self, Commands: &[Value]) {
@@ -95,12 +100,20 @@ impl NyxPhysics {
     }
 
     pub fn StepCommands(&mut self, Commands: &mut [Value], DeltaTime: f32) -> bool {
-        if self.Bodies.iter().all(|Body| Body.InvMass <= 0.0 || Body.Sleeping) {
+        if self
+            .Bodies
+            .iter()
+            .all(|Body| Body.InvMass <= 0.0 || Body.Sleeping)
+        {
             return false;
         }
 
-        let DeltaTime = DeltaTime.clamp(0.0, self.Profile.FixedStep * self.Profile.MaxSubsteps as f32);
-        self.Accumulator = (self.Accumulator + DeltaTime).min(self.Profile.FixedStep * self.Profile.MaxSubsteps as f32);
+        let DeltaTime = DeltaTime.clamp(
+            0.0,
+            self.Profile.FixedStep * self.Profile.MaxSubsteps as f32,
+        );
+        self.Accumulator = (self.Accumulator + DeltaTime)
+            .min(self.Profile.FixedStep * self.Profile.MaxSubsteps as f32);
 
         let mut Stepped = false;
         let mut Substeps = 0;
@@ -119,12 +132,16 @@ impl NyxPhysics {
 
     fn Rebuild(&mut self, Commands: &[Value], PreserveMotion: bool) {
         let Previous: HashMap<String, NyxBody> = if PreserveMotion {
-            self.Bodies.iter().map(|Body| (Body.Id.clone(), Body.clone())).collect()
+            self.Bodies
+                .iter()
+                .map(|Body| (Body.Id.clone(), Body.clone()))
+                .collect()
         } else {
             HashMap::new()
         };
 
-        self.Gravity = Commands.iter()
+        self.Gravity = Commands
+            .iter()
             .filter_map(|Command| {
                 (Command.get("Cmd").and_then(Value::as_str) == Some("SetGravity"))
                     .then(|| ReadF32(Command.get("Value"), self.Profile.Gravity))
@@ -139,14 +156,19 @@ impl NyxPhysics {
                 continue;
             }
 
-            let Id = Command.get("Id").and_then(Value::as_str)
+            let Id = Command
+                .get("Id")
+                .and_then(Value::as_str)
                 .unwrap_or("Part")
                 .to_string();
-            let MaterialName = Command.get("Material").and_then(Value::as_str)
+            let MaterialName = Command
+                .get("Material")
+                .and_then(Value::as_str)
                 .unwrap_or("SmoothPlastic")
                 .to_string();
             let Material = self.MaterialFor(&MaterialName);
-            let Size = ReadVec3(Command.get("Size"), Vec3::new(4.0, 1.2, 2.0)).max(Vec3::splat(0.001));
+            let Size =
+                ReadVec3(Command.get("Size"), Vec3::new(4.0, 1.2, 2.0)).max(Vec3::splat(0.001));
             let Position = ReadPosition(Command);
             let Rotation = ReadRotation(Command);
             let Anchored = ReadBool(Command.get("Anchored"), false);
@@ -154,10 +176,20 @@ impl NyxPhysics {
             let Massless = ReadBool(Command.get("Massless"), false);
             let Density = ReadF32(Command.get("Density"), Material.Density).max(0.001);
             let Friction = ReadF32(Command.get("Friction"), Material.Friction).clamp(0.0, 4.0);
-            let Restitution = ReadF32(Command.get("Elasticity").or_else(|| Command.get("Restitution")), Material.Restitution).clamp(0.0, 2.0);
+            let Restitution = ReadF32(
+                Command
+                    .get("Elasticity")
+                    .or_else(|| Command.get("Restitution")),
+                Material.Restitution,
+            )
+            .clamp(0.0, 2.0);
             let Volume = (Size.x.abs() * Size.y.abs() * Size.z.abs()).max(0.001);
             let BaseMass = ReadF32(Command.get("Mass"), Volume * Density).max(0.001);
-            let Mass = if Massless { BaseMass * self.Profile.MasslessScale.max(0.001) } else { BaseMass };
+            let Mass = if Massless {
+                BaseMass * self.Profile.MasslessScale.max(0.001)
+            } else {
+                BaseMass
+            };
             let InvMass = if Anchored { 0.0 } else { 1.0 / Mass };
 
             let PreviousBody = Previous.get(&Id);
@@ -169,7 +201,9 @@ impl NyxPhysics {
             let AngularVelocity = ReadVec3Any(
                 Command,
                 &["AssemblyAngularVelocity", "RotVelocity", "AngularVelocity"],
-                PreviousBody.map(|Body| Body.AngularVelocity).unwrap_or(Vec3::ZERO),
+                PreviousBody
+                    .map(|Body| Body.AngularVelocity)
+                    .unwrap_or(Vec3::ZERO),
             );
 
             self.Bodies.push(NyxBody {
@@ -191,7 +225,11 @@ impl NyxPhysics {
                 Friction,
                 Restitution,
                 Material: MaterialName,
-                Shape: Command.get("Shape").and_then(Value::as_str).unwrap_or("Block").to_string(),
+                Shape: Command
+                    .get("Shape")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Block")
+                    .to_string(),
                 Sleeping: PreviousBody.map(|Body| Body.Sleeping).unwrap_or(false),
                 SleepTimer: PreviousBody.map(|Body| Body.SleepTimer).unwrap_or(0.0),
             });
@@ -249,7 +287,9 @@ impl NyxPhysics {
                 continue;
             }
 
-            if Body.Velocity.length() < self.Profile.SleepSpeed && Body.AngularVelocity.length() < self.Profile.SleepSpeed {
+            if Body.Velocity.length() < self.Profile.SleepSpeed
+                && Body.AngularVelocity.length() < self.Profile.SleepSpeed
+            {
                 Body.SleepTimer += DeltaTime;
                 if Body.SleepTimer >= self.Profile.SleepDelay {
                     Body.Sleeping = true;
@@ -269,7 +309,10 @@ impl NyxPhysics {
             for B in (A + 1)..self.Bodies.len() {
                 let BodyA = &self.Bodies[A];
                 let BodyB = &self.Bodies[B];
-                if !BodyA.CanCollide || !BodyB.CanCollide || (BodyA.InvMass <= 0.0 && BodyB.InvMass <= 0.0) {
+                if !BodyA.CanCollide
+                    || !BodyB.CanCollide
+                    || (BodyA.InvMass <= 0.0 && BodyB.InvMass <= 0.0)
+                {
                     continue;
                 }
                 if let Some(Contact) = ContactFor(A, BodyA, B, BodyB, self.Profile.ContactSlop) {
@@ -320,7 +363,8 @@ impl NyxPhysics {
         }
 
         let RelativeVelocity = BodyB.Velocity - BodyA.Velocity;
-        let TangentVelocity = RelativeVelocity - Contact.Normal * RelativeVelocity.dot(Contact.Normal);
+        let TangentVelocity =
+            RelativeVelocity - Contact.Normal * RelativeVelocity.dot(Contact.Normal);
         if TangentVelocity.length_squared() <= 0.000001 {
             return;
         }
@@ -328,7 +372,8 @@ impl NyxPhysics {
         let Tangent = TangentVelocity.normalize();
         let FrictionImpulse = -RelativeVelocity.dot(Tangent) / TotalInvMass;
         let Friction = CombineFriction(BodyA.Friction, BodyB.Friction, self.Profile.FrictionMode);
-        let ClampedFrictionImpulse = FrictionImpulse.clamp(-NormalImpulse * Friction, NormalImpulse * Friction);
+        let ClampedFrictionImpulse =
+            FrictionImpulse.clamp(-NormalImpulse * Friction, NormalImpulse * Friction);
         let FrictionVector = Tangent * ClampedFrictionImpulse;
         if BodyA.InvMass > 0.0 {
             BodyA.Velocity -= FrictionVector * BodyA.InvMass;
@@ -340,17 +385,25 @@ impl NyxPhysics {
 
     fn WriteBack(&self, Commands: &mut [Value]) {
         for Body in &self.Bodies {
-            let Some(Command) = Commands.get_mut(Body.CommandIndex) else { continue; };
-            let Some(Object) = Command.as_object_mut() else { continue; };
+            let Some(Command) = Commands.get_mut(Body.CommandIndex) else {
+                continue;
+            };
+            let Some(Object) = Command.as_object_mut() else {
+                continue;
+            };
 
             // { X, Y, Z }
-            Object.insert("Position".to_string(), json!({
-                "X": Body.Position.x,
-                "Y": Body.Position.y,
-                "Z": Body.Position.z,
-            }));
+            Object.insert(
+                "Position".to_string(),
+                json!({
+                    "X": Body.Position.x,
+                    "Y": Body.Position.y,
+                    "Z": Body.Position.z,
+                }),
+            );
 
-            let mut CFrame = Object.get("CFrame")
+            let mut CFrame = Object
+                .get("CFrame")
                 .and_then(Value::as_object)
                 .cloned()
                 .unwrap_or_else(Map::new);
@@ -378,7 +431,10 @@ impl NyxPhysics {
                 "Y": Body.AngularVelocity.y,
                 "Z": Body.AngularVelocity.z,
             });
-            Object.insert("AssemblyAngularVelocity".to_string(), AngularVelocity.clone());
+            Object.insert(
+                "AssemblyAngularVelocity".to_string(),
+                AngularVelocity.clone(),
+            );
             Object.insert("RotVelocity".to_string(), AngularVelocity);
 
             Object.insert("Mass".to_string(), json!(Body.Mass));
@@ -386,30 +442,45 @@ impl NyxPhysics {
             Object.insert("Massless".to_string(), json!(Body.Massless));
 
             // { Profile, Sleeping, Anchored, CanCollide, Shape, Material, Mass, Density, Friction, Elasticity, LinearSpeed }
-            Object.insert("Physics".to_string(), json!({
-                "Profile": self.Profile.Id,
-                "Sleeping": Body.Sleeping,
-                "Anchored": Body.Anchored,
-                "CanCollide": Body.CanCollide,
-                "Shape": Body.Shape,
-                "Material": Body.Material,
-                "Mass": Body.Mass,
-                "Density": Body.Density,
-                "Friction": Body.Friction,
-                "Elasticity": Body.Restitution,
-                "LinearSpeed": Body.Velocity.length(),
-            }));
+            Object.insert(
+                "Physics".to_string(),
+                json!({
+                    "Profile": self.Profile.Id,
+                    "Sleeping": Body.Sleeping,
+                    "Anchored": Body.Anchored,
+                    "CanCollide": Body.CanCollide,
+                    "Shape": Body.Shape,
+                    "Material": Body.Material,
+                    "Mass": Body.Mass,
+                    "Density": Body.Density,
+                    "Friction": Body.Friction,
+                    "Elasticity": Body.Restitution,
+                    "LinearSpeed": Body.Velocity.length(),
+                }),
+            );
         }
     }
 
     fn MaterialFor(&self, Name: &str) -> NyxMaterial {
-        self.Profile.Materials.get(Name)
+        self.Profile
+            .Materials
+            .get(Name)
             .copied()
-            .unwrap_or(NyxMaterial { Density: 1.0, Friction: 0.35, Restitution: 0.0 })
+            .unwrap_or(NyxMaterial {
+                Density: 1.0,
+                Friction: 0.35,
+                Restitution: 0.0,
+            })
     }
 }
 
-fn ContactFor(A: usize, BodyA: &NyxBody, B: usize, BodyB: &NyxBody, Slop: f32) -> Option<NyxContact> {
+fn ContactFor(
+    A: usize,
+    BodyA: &NyxBody,
+    B: usize,
+    BodyB: &NyxBody,
+    Slop: f32,
+) -> Option<NyxContact> {
     let Delta = BodyB.Position - BodyA.Position;
     let HalfA = BodyA.Size * 0.5;
     let HalfB = BodyB.Size * 0.5;
@@ -419,15 +490,33 @@ fn ContactFor(A: usize, BodyA: &NyxBody, B: usize, BodyB: &NyxBody, Slop: f32) -
     }
 
     let (Depth, Normal) = if Overlap.x <= Overlap.y && Overlap.x <= Overlap.z {
-        (Overlap.x + Slop, Vec3::new(Delta.x.signum().max(-1.0).min(1.0), 0.0, 0.0))
+        (
+            Overlap.x + Slop,
+            Vec3::new(Delta.x.signum().max(-1.0).min(1.0), 0.0, 0.0),
+        )
     } else if Overlap.y <= Overlap.z {
-        (Overlap.y + Slop, Vec3::new(0.0, Delta.y.signum().max(-1.0).min(1.0), 0.0))
+        (
+            Overlap.y + Slop,
+            Vec3::new(0.0, Delta.y.signum().max(-1.0).min(1.0), 0.0),
+        )
     } else {
-        (Overlap.z + Slop, Vec3::new(0.0, 0.0, Delta.z.signum().max(-1.0).min(1.0)))
+        (
+            Overlap.z + Slop,
+            Vec3::new(0.0, 0.0, Delta.z.signum().max(-1.0).min(1.0)),
+        )
     };
-    let Normal = if Normal.length_squared() <= 0.0 { Vec3::Y } else { Normal };
+    let Normal = if Normal.length_squared() <= 0.0 {
+        Vec3::Y
+    } else {
+        Normal
+    };
 
-    Some(NyxContact { A, B, Normal, Depth })
+    Some(NyxContact {
+        A,
+        B,
+        Normal,
+        Depth,
+    })
 }
 
 fn SplitPairMut<T>(Items: &mut [T], A: usize, B: usize) -> (&mut T, &mut T) {
@@ -456,7 +545,9 @@ fn ReadPosition(Command: &Value) -> Vec3 {
 }
 
 fn ReadRotation(Command: &Value) -> Vec3 {
-    let Some(CFrame) = Command.get("CFrame") else { return Vec3::ZERO; };
+    let Some(CFrame) = Command.get("CFrame") else {
+        return Vec3::ZERO;
+    };
     Vec3::new(
         ReadF32(CFrame.get("RX"), 0.0),
         ReadF32(CFrame.get("RY"), 0.0),
@@ -474,7 +565,9 @@ fn ReadVec3Any(Command: &Value, Keys: &[&str], Default: Vec3) -> Vec3 {
 }
 
 fn ReadVec3(Value: Option<&Value>, Default: Vec3) -> Vec3 {
-    let Some(Value) = Value else { return Default; };
+    let Some(Value) = Value else {
+        return Default;
+    };
     Vec3::new(
         ReadF32(Value.get("X"), Default.x),
         ReadF32(Value.get("Y"), Default.y),
@@ -483,7 +576,10 @@ fn ReadVec3(Value: Option<&Value>, Default: Vec3) -> Vec3 {
 }
 
 fn ReadF32(Value: Option<&Value>, Default: f32) -> f32 {
-    Value.and_then(Value::as_f64).map(|Value| Value as f32).unwrap_or(Default)
+    Value
+        .and_then(Value::as_f64)
+        .map(|Value| Value as f32)
+        .unwrap_or(Default)
 }
 
 fn ReadBool(Value: Option<&Value>, Default: bool) -> bool {

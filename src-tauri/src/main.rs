@@ -6,17 +6,19 @@
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
+mod agent_runtime;
 mod commands;
 mod renderer;
+mod state;
 
-use renderer::NyxRenderer;
 use commands::agent::ApprovalState;
+use renderer::NyxRenderer;
+use state::AppState;
 
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            let main_window = app.get_window("main")
-                .ok_or("main window not found")?;
+            let main_window = app.get_window("main").ok_or("main window not found")?;
 
             let parent_hwnd = {
                 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
@@ -27,19 +29,25 @@ fn main() {
             };
 
             let _ = main_window.set_icon(tauri::Icon::File(
-                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("icons/icon.ico")
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("icons/icon.ico"),
             ));
 
             match NyxRenderer::new(parent_hwnd, app.handle()) {
-                Ok(r)  => { app.manage(Arc::new(Mutex::new(r))); }
-                Err(e) => { eprintln!("NyxRenderer::new failed: {e}"); }
+                Ok(r) => {
+                    app.manage(Arc::new(Mutex::new(r)));
+                }
+                Err(e) => {
+                    eprintln!("NyxRenderer::new failed: {e}");
+                }
             }
 
             app.manage(Arc::new(Mutex::new(ApprovalState::default())));
+            app.manage(AppState::default());
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_app_state_snapshot,
             commands::list_files,
             commands::list_files_recursive,
             commands::open_file,
@@ -83,7 +91,9 @@ fn main() {
             commands::ai_get_config,
             commands::ai_start_agent,
             commands::ai_tool_respond,
+            commands::ai_question_respond,
             commands::ai_launch_keyman,
+            commands::ai_launch_nyx_cli,
             commands::get_app_settings,
             commands::save_app_settings,
         ])

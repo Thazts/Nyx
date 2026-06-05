@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { ActivityBar } from "./components/ActivityBar";
 import { Sidebar } from "./components/Sidebar";
 import { EditorArea } from "./components/EditorArea";
@@ -12,7 +13,7 @@ import { EditorService } from "./services/EditorService";
 import { CaptureService } from "./services/CaptureService";
 import { RunService } from "./services/RunService";
 import { NativeCommands } from "./services/NativeCommands";
-import { StateManager } from "./state/StateManager";
+import { StateService } from "./services/StateService";
 import { SceneService } from "./services/SceneService";
 import { RendererService } from "./services/RendererService";
 import { InferProfileFromPath } from "./services/EngineProfiles";
@@ -21,11 +22,11 @@ import { SourceControl } from "./components/SourceControl";
 import { SettingsPanel, InitSettings } from "./components/SettingsPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { UILib, UsePanel } from "./ui/UILib";
-import { invoke } from "@tauri-apps/api/tauri";
 import { DetectLanguage } from "./services/Tokenizer";
+import { useStateKey } from "./state/useStateKey";
 import "./styles/global.css";
 
-StateManager.init();
+StateService.Init();
 InitSettings();
 
 const RECENT_KEY = "nyx_recent_workspaces";
@@ -61,6 +62,10 @@ interface TabEntry {
 interface FileMetadata {
     Size: number;
     Modified: string;
+}
+
+interface AiChangeEvent {
+    Path: string;
 }
 
 const InitialCode = `-- Welcome to Nyx
@@ -100,6 +105,12 @@ const SortTree = (Entries: FileEntry[]): FileEntry[] =>
         })
         .map(E => E.IsDirectory && E.Children ? { ...E, Children: SortTree(E.Children) } : E);
 
+const IsAbsolutePath = (Path: string): boolean =>
+    /^[A-Za-z]:[\\/]/.test(Path) || Path.startsWith("\\\\") || Path.startsWith("/");
+
+const NormalizePathKey = (Path: string): string =>
+    Path.replace(/\\/g, "/").toLowerCase();
+
 export const App: React.FC = () => {
     const [AppReady, SetAppReady] = useState(false);
     const DevMenuOpen = UsePanel("DevMenu");
@@ -124,6 +135,7 @@ export const App: React.FC = () => {
     const [IsRunning, SetIsRunning] = useState(false);
     const [SavedFlash, SetSavedFlash] = useState(false);
     const [ExternalContentVersion, SetExternalContentVersion] = useState(0);
+    const AiChangedFiles = useStateKey<string[]>("AiChangedFiles");
     const [GitBranch, SetGitBranch]       = useState("—");
     const [RecentPaths, SetRecentPaths]   = useState<string[]>(() => GetRecentWorkspaces());
     const IsSourceControlOpen  = UsePanel("SourceControl");
@@ -294,7 +306,7 @@ export const App: React.FC = () => {
             if (keysDown.has('q')) up      -= 1;
             if (keysDown.has('e')) up      += 1;
             if (forward !== 0 || right !== 0 || up !== 0) {
-                invoke('renderer_camera_wasd', { forward, right, up }).catch(() => {});
+                RendererService.CameraWasd({ Forward: forward, Right: right, Up: up }).catch(() => {});
             }
         };
 
@@ -308,7 +320,7 @@ export const App: React.FC = () => {
             MarkViewportInteraction();
             if (e.button === 2) {
                 keysDown.add('mouse2');
-                invoke('renderer_camera_right_mouse', { down: true }).catch(() => {});
+                RendererService.CameraRightMouse({ Down: true }).catch(() => {});
                 e.preventDefault();
             }
         };
@@ -317,7 +329,7 @@ export const App: React.FC = () => {
             if (viewportEl.contains(e.target as Node)) MarkViewportInteraction();
             if (e.button === 2) {
                 keysDown.delete('mouse2');
-                invoke('renderer_camera_right_mouse', { down: false }).catch(() => {});
+                RendererService.CameraRightMouse({ Down: false }).catch(() => {});
             }
         };
 
@@ -430,23 +442,24 @@ export const App: React.FC = () => {
             const FolderPath = await FileService.SelectFolder();
             if (!FolderPath) return;
             SetIsLoading(true);
-            StateManager.set("AppStatus", "loading");
+            StateService.Set({ Key: "AppStatus", Value: "loading" });
             const Tree = await BuildFileTree(FolderPath);
             SetFileTree(Tree);
             SetWorkspacePath(FolderPath);
-            StateManager.set("WorkspacePath", FolderPath);
-            StateManager.set("FileTree", Tree);
+            StateService.Set({ Key: "AiChangedFiles", Value: [] });
+            StateService.Set({ Key: "WorkspacePath", Value: FolderPath });
+            StateService.Set({ Key: "FileTree", Value: Tree });
             const SubFolders = CollectAllFolderPaths(Tree[0]?.Children ?? []);
             SetCollapsedFolders(new Set(SubFolders));
             SetIsLoading(false);
-            StateManager.set("AppStatus", "idle");
+            StateService.Set({ Key: "AppStatus", Value: "idle" });
             SetTerminalOutput(Prev => [...Prev, `Workspace: ${FolderPath}`]);
             SetRecentPaths(AddRecentWorkspace(FolderPath));
             SetAppReady(true);
         } catch (Error) {
             console.error("Failed to load workspace:", Error);
             SetIsLoading(false);
-            StateManager.set("AppStatus", "idle");
+            StateService.Set({ Key: "AppStatus", Value: "idle" });
         }
     }, [BuildFileTree]);
 
@@ -455,17 +468,18 @@ export const App: React.FC = () => {
             const FolderPath = await FileService.SelectFolder();
             if (!FolderPath) return;
             SetIsLoading(true);
-            StateManager.set("AppStatus", "loading");
+            StateService.Set({ Key: "AppStatus", Value: "loading" });
             const Tree = await BuildFileTree(FolderPath);
             SetFileTree(Tree);
             SetWorkspacePath(FolderPath);
-            StateManager.set("WorkspacePath", FolderPath);
-            StateManager.set("FileTree", Tree);
+            StateService.Set({ Key: "AiChangedFiles", Value: [] });
+            StateService.Set({ Key: "WorkspacePath", Value: FolderPath });
+            StateService.Set({ Key: "FileTree", Value: Tree });
             SetIsLoading(false);
-            StateManager.set("AppStatus", "idle");
+            StateService.Set({ Key: "AppStatus", Value: "idle" });
             SetRecentPaths(AddRecentWorkspace(FolderPath));
             SetActiveFile(null);
-            StateManager.set("ActiveFile", null);
+            StateService.Set({ Key: "ActiveFile", Value: null });
             FileContentRef.current = InitialCode;
             DiskContentRef.current = InitialCode;
             SetFileContent(InitialCode);
@@ -474,14 +488,14 @@ export const App: React.FC = () => {
             LiveViewportTimersRef.current.clear();
             LiveViewportTokensRef.current.clear();
             SetOpenTabs([]);
-            StateManager.set("OpenTabs", []);
+            StateService.Set({ Key: "OpenTabs", Value: [] });
             const SubFolders = CollectAllFolderPaths(Tree[0]?.Children ?? []);
             SetCollapsedFolders(new Set(SubFolders));
             SetTerminalOutput(Prev => [...Prev, `Workspace: ${FolderPath}`]);
         } catch (Error) {
             console.error("Failed to select folder:", Error);
             SetIsLoading(false);
-            StateManager.set("AppStatus", "idle");
+            StateService.Set({ Key: "AppStatus", Value: "idle" });
         }
     }, [BuildFileTree]);
 
@@ -498,7 +512,15 @@ export const App: React.FC = () => {
         PrevActiveFileRef.current = Path;
 
         SetActiveFile(Path);
-        StateManager.set("ActiveFile", Path);
+        {
+            const Key = NormalizePathKey(Path);
+            const Current = StateService.Get<string[]>({ Key: "AiChangedFiles" }) ?? [];
+            const Next = Current.filter(P => NormalizePathKey(P) !== Key);
+            if (Next.length !== Current.length) {
+                StateService.Set({ Key: "AiChangedFiles", Value: Next });
+            }
+        }
+        StateService.Set({ Key: "ActiveFile", Value: Path });
         const Entry = FindEntry(FileTree, Path);
         SetSelectedEntry(Entry);
 
@@ -532,7 +554,7 @@ export const App: React.FC = () => {
             SetActiveTabModified(false);
             SetOpenTabs(Prev => {
                 const Next = [...Prev, { Path, Name: FileName, Content, DiskContent: Content }];
-                StateManager.set("OpenTabs", Next);
+                StateService.Set({ Key: "OpenTabs", Value: Next });
                 return Next;
             });
             SetFileContent(Content);
@@ -540,6 +562,108 @@ export const App: React.FC = () => {
             SetFileContent("// Could not load file");
         }
     }, [FileTree, OpenTabs]);
+
+    const ResolveWorkspaceFilePath = useCallback((Path: string): string | null => {
+        if (!WorkspacePath) return null;
+        return IsAbsolutePath(Path) ? Path : `${WorkspacePath}\\${Path.replace(/^[\\/]/, "")}`;
+    }, [WorkspacePath]);
+
+    const MarkAiChangedFile = useCallback((Path: string) => {
+        const Key = NormalizePathKey(Path);
+        const Current = StateService.Get<string[]>({ Key: "AiChangedFiles" }) ?? [];
+        if (Current.some(P => NormalizePathKey(P) === Key)) return;
+        StateService.Set({ Key: "AiChangedFiles", Value: [...Current, Path] });
+    }, []);
+
+    const RenameAiChangedPath = useCallback((OldPath: string, NewPath: string) => {
+        const OldKey = NormalizePathKey(OldPath);
+        const Current = StateService.Get<string[]>({ Key: "AiChangedFiles" }) ?? [];
+        const Next = Current.map(P => {
+            const Key = NormalizePathKey(P);
+            if (Key === OldKey) return NewPath;
+            if (Key.startsWith(`${OldKey}/`)) return `${NewPath}${P.slice(OldPath.length)}`;
+            return P;
+        });
+        StateService.Set({ Key: "AiChangedFiles", Value: Next });
+    }, []);
+
+    const ClearAiChangedPathTree = useCallback((Path: string) => {
+        const Key = NormalizePathKey(Path);
+        const Current = StateService.Get<string[]>({ Key: "AiChangedFiles" }) ?? [];
+        const Next = Current.filter(P => {
+            const Candidate = NormalizePathKey(P);
+            return Candidate !== Key && !Candidate.startsWith(`${Key}/`);
+        });
+        if (Next.length !== Current.length) {
+            StateService.Set({ Key: "AiChangedFiles", Value: Next });
+        }
+    }, []);
+
+    const RefreshWorkspaceAfterAiChange = useCallback(async (ChangedPath: string) => {
+        if (!WorkspacePath) return;
+        const FullPath = ResolveWorkspaceFilePath(ChangedPath);
+        if (!FullPath) return;
+        MarkAiChangedFile(FullPath);
+
+        try {
+            const NewTree = await BuildFileTree(WorkspacePath);
+            SetFileTree(NewTree);
+            StateService.Set({ Key: "FileTree", Value: NewTree });
+        } catch {
+            // Keep the edit card usable even if a transient tree refresh fails.
+        }
+
+        try {
+            const Content = await FileService.OpenFile({ Path: FullPath });
+            const Meta = await FileService.GetFileMetadata({ Path: FullPath });
+
+            SetOpenTabs(Prev => {
+                const Next = Prev.map(Tab => {
+                    if (Tab.Path !== FullPath || Tab.Content !== Tab.DiskContent) return Tab;
+                    return { ...Tab, Content, DiskContent: Content };
+                });
+                StateService.Set({ Key: "OpenTabs", Value: Next });
+                return Next;
+            });
+
+            if (ActiveFileRef.current === FullPath && FileContentRef.current === DiskContentRef.current) {
+                FileContentRef.current = Content;
+                DiskContentRef.current = Content;
+                LastKnownMtimeRef.current = Meta.Modified;
+                SetFileContent(Content);
+                SetActiveTabModified(false);
+                SetExternalContentVersion(V => V + 1);
+                SetSelectedMetadata(Meta);
+            }
+        } catch {
+            // Some write tools may target notes or paths outside the active workspace.
+        }
+    }, [BuildFileTree, MarkAiChangedFile, ResolveWorkspaceFilePath, WorkspacePath]);
+
+    const HandleAiOpenFile = useCallback(async (Path: string) => {
+        const FullPath = ResolveWorkspaceFilePath(Path);
+        if (!FullPath) return;
+        await HandleFileSelect(FullPath);
+    }, [HandleFileSelect, ResolveWorkspaceFilePath]);
+
+    useEffect(() => {
+        let Cancelled = false;
+        let Unlisten: (() => void) | null = null;
+
+        listen<AiChangeEvent>("ai_change_applied", Event => {
+            if (!Cancelled) {
+                RefreshWorkspaceAfterAiChange(Event.payload.Path).catch(() => {});
+            }
+        }).then(Fn => {
+            if (Cancelled) Fn();
+            else Unlisten = Fn;
+        }).catch(() => {});
+
+        return () => {
+            Cancelled = true;
+            Unlisten?.();
+        };
+    }, [RefreshWorkspaceAfterAiChange]);
 
     const StopLiveViewport = useCallback((ViewportPath: string) => {
         const Timer = LiveViewportTimersRef.current.get(ViewportPath);
@@ -558,20 +682,20 @@ export const App: React.FC = () => {
                 ? Prev.map(T => T.Path === ActiveFile ? { ...T, Content: SyncedContent } : T)
                 : Prev;
             const NewTabs = WithSynced.filter(T => T.Path !== Path);
-            StateManager.set("OpenTabs", NewTabs);
+            StateService.Set({ Key: "OpenTabs", Value: NewTabs });
 
             if (Path === ActiveFile) {
                 const LastTab = NewTabs[NewTabs.length - 1];
                 if (LastTab) {
                     SetActiveFile(LastTab.Path);
-                    StateManager.set("ActiveFile", LastTab.Path);
+                    StateService.Set({ Key: "ActiveFile", Value: LastTab.Path });
                     FileContentRef.current = LastTab.Content;
                     DiskContentRef.current = LastTab.DiskContent;
                     SetFileContent(LastTab.Content);
                     SetActiveTabModified(LastTab.Content !== LastTab.DiskContent);
                 } else {
                     SetActiveFile(null);
-                    StateManager.set("ActiveFile", null);
+                    StateService.Set({ Key: "ActiveFile", Value: null });
                     FileContentRef.current = InitialCode;
                     DiskContentRef.current = InitialCode;
                     SetFileContent(InitialCode);
@@ -597,7 +721,7 @@ export const App: React.FC = () => {
 
         SetSwitchDir("none");
         SetActiveFile(Path);
-        StateManager.set("ActiveFile", Path);
+        StateService.Set({ Key: "ActiveFile", Value: Path });
         if (Tab.Type === 'viewport') {
             FileContentRef.current = "";
             DiskContentRef.current = "";
@@ -655,29 +779,29 @@ export const App: React.FC = () => {
     const HandleRun = useCallback(async () => {
         if (!ActiveFile || IsRunning || ActiveFile.startsWith("viewport:")) return;
         SetIsRunning(true);
-        StateManager.set("IsRunning", true);
+        StateService.Set({ Key: "IsRunning", Value: true });
         try {
             const Lines = await RunService.RunFile({ Path: ActiveFile });
             SetRunOutput(Prev => {
                 const Next = [...Prev, ...Lines];
-                StateManager.set("RunOutput", Next);
+                StateService.Set({ Key: "RunOutput", Value: Next });
                 return Next;
             });
         } catch (Err) {
             SetRunOutput(Prev => {
                 const Next = [...Prev, `err: ${Err}`];
-                StateManager.set("RunOutput", Next);
+                StateService.Set({ Key: "RunOutput", Value: Next });
                 return Next;
             });
         } finally {
             SetIsRunning(false);
-            StateManager.set("IsRunning", false);
+            StateService.Set({ Key: "IsRunning", Value: false });
         }
     }, [ActiveFile, IsRunning]);
 
     const HandleClearRunOutput = useCallback(() => {
         SetRunOutput([]);
-        StateManager.set("RunOutput", []);
+        StateService.Set({ Key: "RunOutput", Value: [] });
     }, []);
 
     const StartLiveViewport = useCallback((SourcePath: string, Profile: string) => {
@@ -739,12 +863,12 @@ export const App: React.FC = () => {
             };
             SetOpenTabs(Prev => {
                 const Next = [...Prev, NewTab];
-                StateManager.set("OpenTabs", Next);
+                StateService.Set({ Key: "OpenTabs", Value: Next });
                 return Next;
             });
         }
         SetActiveFile(ViewportPath);
-        StateManager.set("ActiveFile", ViewportPath);
+        StateService.Set({ Key: "ActiveFile", Value: ViewportPath });
         FileContentRef.current = "";
         DiskContentRef.current = "";
         SetFileContent("");
@@ -793,7 +917,7 @@ export const App: React.FC = () => {
             await FileService.SaveFile({ Path: NewPath, Content: "" });
             const NewTree = await BuildFileTree(WorkspacePath);
             SetFileTree(NewTree);
-            StateManager.set("FileTree", NewTree);
+            StateService.Set({ Key: "FileTree", Value: NewTree });
             await HandleFileSelect(NewPath);
         } catch (Err) {
             SetTerminalOutput(Prev => [...Prev, `err: Could not create file; ${Err}`]);
@@ -807,7 +931,7 @@ export const App: React.FC = () => {
             await FileService.CreateFolder({ Path: NewPath });
             const NewTree = await BuildFileTree(WorkspacePath);
             SetFileTree(NewTree);
-            StateManager.set("FileTree", NewTree);
+            StateService.Set({ Key: "FileTree", Value: NewTree });
         } catch (Err) {
             SetTerminalOutput(Prev => [...Prev, `err: Could not create folder; ${Err}`]);
         }
@@ -817,37 +941,39 @@ export const App: React.FC = () => {
         if (!WorkspacePath) return;
         try {
             const NewPath = await FileService.RenamePath({ Path: OldPath, NewName });
+            RenameAiChangedPath(OldPath, NewPath);
             SetOpenTabs(Prev => {
                 const Next = Prev.map(T =>
                     T.Path === OldPath ? { ...T, Path: NewPath, Name: NewName } : T
                 );
-                StateManager.set("OpenTabs", Next);
+                StateService.Set({ Key: "OpenTabs", Value: Next });
                 return Next;
             });
             if (ActiveFile === OldPath) {
                 SetActiveFile(NewPath);
-                StateManager.set("ActiveFile", NewPath);
+                StateService.Set({ Key: "ActiveFile", Value: NewPath });
             }
             const NewTree = await BuildFileTree(WorkspacePath);
             SetFileTree(NewTree);
-            StateManager.set("FileTree", NewTree);
+            StateService.Set({ Key: "FileTree", Value: NewTree });
         } catch (Err) {
             SetTerminalOutput(Prev => [...Prev, `err: Could not rename; ${Err}`]);
         }
-    }, [WorkspacePath, BuildFileTree, ActiveFile]);
+    }, [WorkspacePath, BuildFileTree, ActiveFile, RenameAiChangedPath]);
 
     const HandleDelete = useCallback(async (Path: string) => {
         if (!WorkspacePath) return;
         try {
             await FileService.DeletePath({ Path });
+            ClearAiChangedPathTree(Path);
             SetOpenTabs(Prev => {
                 const Next = Prev.filter(T => !T.Path.startsWith(Path));
-                StateManager.set("OpenTabs", Next);
+                StateService.Set({ Key: "OpenTabs", Value: Next });
                 return Next;
             });
             if (ActiveFile && ActiveFile.startsWith(Path)) {
                 SetActiveFile(null);
-                StateManager.set("ActiveFile", null);
+                StateService.Set({ Key: "ActiveFile", Value: null });
                 FileContentRef.current = InitialCode;
                 DiskContentRef.current = InitialCode;
                 SetFileContent(InitialCode);
@@ -855,12 +981,12 @@ export const App: React.FC = () => {
             }
             const NewTree = await BuildFileTree(WorkspacePath);
             SetFileTree(NewTree);
-            StateManager.set("FileTree", NewTree);
+            StateService.Set({ Key: "FileTree", Value: NewTree });
             SetTerminalOutput(Prev => [...Prev, `Deleted: ${Path.split(/[\\/]/).pop()}`]);
         } catch (Err) {
             SetTerminalOutput(Prev => [...Prev, `err: Could not delete; ${Err}`]);
         }
-    }, [WorkspacePath, BuildFileTree, ActiveFile]);
+    }, [WorkspacePath, BuildFileTree, ActiveFile, ClearAiChangedPathTree]);
 
     const HandleDevInjectScript = useCallback(async (FileName: string, Content: string) => {
         if (!WorkspacePath) return;
@@ -868,7 +994,7 @@ export const App: React.FC = () => {
         await FileService.SaveFile({ Path, Content });
         const NewTree = await BuildFileTree(WorkspacePath);
         SetFileTree(NewTree);
-        StateManager.set("FileTree", NewTree);
+        StateService.Set({ Key: "FileTree", Value: NewTree });
         await HandleFileSelect(Path);
     }, [WorkspacePath, BuildFileTree, HandleFileSelect]);
 
@@ -911,16 +1037,21 @@ export const App: React.FC = () => {
             ? ActiveTabModified
             : T.Content !== T.DiskContent
     ).length;
+    const AiChangedFileSet = useMemo(
+        () => new Set(AiChangedFiles.map(NormalizePathKey)),
+        [AiChangedFiles]
+    );
 
     const HandleOpenRecent = useCallback(async (FolderPath: string) => {
         SetIsLoading(true);
-        StateManager.set("AppStatus", "loading");
+        StateService.Set({ Key: "AppStatus", Value: "loading" });
         try {
             const Tree = await BuildFileTree(FolderPath);
             SetFileTree(Tree);
             SetWorkspacePath(FolderPath);
-            StateManager.set("WorkspacePath", FolderPath);
-            StateManager.set("FileTree", Tree);
+            StateService.Set({ Key: "AiChangedFiles", Value: [] });
+            StateService.Set({ Key: "WorkspacePath", Value: FolderPath });
+            StateService.Set({ Key: "FileTree", Value: Tree });
             const SubFolders = CollectAllFolderPaths(Tree[0]?.Children ?? []);
             SetCollapsedFolders(new Set(SubFolders));
             SetTerminalOutput(Prev => [...Prev, `Workspace: ${FolderPath}`]);
@@ -933,7 +1064,7 @@ export const App: React.FC = () => {
             SetRecentPaths(Next);
         } finally {
             SetIsLoading(false);
-            StateManager.set("AppStatus", "idle");
+            StateService.Set({ Key: "AppStatus", Value: "idle" });
         }
     }, [BuildFileTree]);
 
@@ -968,12 +1099,13 @@ export const App: React.FC = () => {
                         OnNewFolder={HandleNewFolder}
                         OnRename={HandleRename}
                         OnDelete={HandleDelete}
+                        AiChangedFiles={AiChangedFileSet}
                     />
                 ) : (
                     <div className="NoWorkspacePanel">
                         {IsLoading ? (
                             <div className="NoWorkspaceLoading">
-                                <img src="/media/Kitty.png" alt="" className="SpinningCat" style={{ width: 36, height: 36 }} />
+                                <img src="/Kitty.png" alt="" className="SpinningCat" style={{ width: 36, height: 36 }} />
                             </div>
                         ) : (
                             <button className="OpenFolderInline" onClick={HandleSelectWorkspace}>
@@ -1012,6 +1144,7 @@ export const App: React.FC = () => {
                         ActiveFile={ActiveFile}
                         FileContent={FileContent}
                         Workspace={WorkspacePath}
+                        OnOpenFile={HandleAiOpenFile}
                     />
                 </div>
                 <PropertiesBar

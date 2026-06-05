@@ -4,6 +4,7 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    position: relative;
 }
 
 .Toolbar {
@@ -58,6 +59,25 @@
     white-space: nowrap;
 }
 
+.CliBtn {
+    padding: 3px 9px;
+    font-size: 9.5px;
+    font-weight: 600;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: rgba(255,255,255,0.03);
+    color: var(--txt3);
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+    font-family: inherit;
+}
+
+.CliBtn:hover {
+    color: var(--txt2);
+    border-color: rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06);
+}
+
 .ClearBtn {
     margin-left: auto;
     padding: 3px 9px;
@@ -73,6 +93,162 @@
 }
 
 .ClearBtn:hover { color: var(--txt2); border-color: rgba(255,255,255,0.1); }
+
+.ActivityStrip {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 24px;
+    padding: 0 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: var(--txt3);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+
+.ActivityStripActive {
+    color: var(--txt2);
+}
+
+.ActivityDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--txt3);
+    box-shadow: 0 0 0 rgba(212,176,204,0);
+}
+
+.ActivityStripActive .ActivityDot {
+    background: var(--acc);
+    animation: ActivityPulse 1.15s ease-in-out infinite;
+}
+
+.ActivityLabel {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@keyframes ActivityPulse {
+    0%, 100% {
+        opacity: 0.45;
+        box-shadow: 0 0 0 0 rgba(212,176,204,0.18);
+    }
+    50% {
+        opacity: 1;
+        box-shadow: 0 0 0 5px rgba(212,176,204,0);
+    }
+}
+
+.DisclosureBackdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background:
+        linear-gradient(135deg, rgba(212,176,204,0.1), rgba(212,176,204,0.035)),
+        rgba(16,14,20,0.78);
+    backdrop-filter: blur(8px);
+}
+
+.DisclosureDialog {
+    width: min(520px, 100%);
+    border-radius: 8px;
+    border: 1px solid rgba(212,176,204,0.34);
+    background:
+        linear-gradient(180deg, rgba(45,39,52,0.98), rgba(25,23,31,0.98));
+    box-shadow: 0 18px 50px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.04);
+    padding: 16px 18px;
+    color: var(--txt2);
+}
+
+.DisclosureKicker {
+    color: var(--acc);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+
+.DisclosureTitle {
+    color: var(--txt);
+    font-size: 14px;
+    font-weight: 750;
+    margin-bottom: 10px;
+    text-shadow: 0 0 18px rgba(212,176,204,0.12);
+}
+
+.DisclosureBody {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--txt2);
+    font-size: 10.5px;
+    line-height: 1.6;
+}
+
+.DisclosureBody p {
+    margin: 0;
+}
+
+.DisclosureAccent {
+    color: #f0c6df;
+    font-weight: 750;
+}
+
+.DisclosureHot {
+    color: #f0c6df;
+    font-weight: 800;
+}
+
+.DisclosureWarn {
+    color: #f0c6df;
+    font-weight: 800;
+}
+
+.DisclosureActions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 14px;
+}
+
+.DisclosurePrimary {
+    padding: 6px 13px;
+    border-radius: 6px;
+    border: 1px solid rgba(212,176,204,0.36);
+    background: rgba(212,176,204,0.12);
+    color: #f0c6df;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 rgba(212,176,204,0);
+    transition:
+        background var(--tf),
+        border-color var(--tf),
+        box-shadow var(--tf),
+        transform 180ms var(--spring);
+}
+
+.DisclosurePrimary:hover {
+    background: rgba(212,176,204,0.2);
+    border-color: rgba(212,176,204,0.52);
+    box-shadow: 0 8px 22px rgba(212,176,204,0.12);
+    transform: translateY(-1px) scale(1.045);
+}
+
+.DisclosurePrimary:active {
+    box-shadow: 0 2px 8px rgba(212,176,204,0.08);
+    transform: translateY(1px) scale(0.94);
+    transition-duration: 90ms;
+}
 
 .Messages {
     flex: 1;
@@ -237,6 +413,8 @@
     background: rgba(255,255,255,0.02);
     overflow: hidden;
     font-size: 10px;
+    min-height: 48px;
+    color: var(--txt2);
     animation: ToolIn 0.18s var(--smooth-out) both;
 }
 
@@ -245,15 +423,28 @@
     to   { opacity: 1; transform: translateY(0); }
 }
 
-.ToolCardRunning { border-color: rgba(212,176,204,0.18); }
-.ToolCardDone    { border-color: rgba(100,220,130,0.18); background: rgba(100,220,130,0.03); }
-.ToolCardError   { border-color: rgba(220,100,100,0.2);  background: rgba(220,100,100,0.03); }
+.ToolCardRunning {
+    border-color: rgba(212,176,204,0.26);
+    background: rgba(212,176,204,0.075);
+}
+.ToolCardRunning {
+    animation: ToolIn 0.18s var(--smooth-out) both, ToolRunningPulse 1.4s ease-in-out infinite;
+}
+.ToolCardDone    { border-color: rgba(100,220,130,0.3); background: rgba(100,220,130,0.085); }
+.ToolCardError   { border-color: rgba(220,100,100,0.32);  background: rgba(220,100,100,0.08); }
+
+@keyframes ToolRunningPulse {
+    0%, 100% { box-shadow: inset 2px 0 0 rgba(212,176,204,0.24); }
+    50%      { box-shadow: inset 2px 0 0 rgba(212,176,204,0.72); }
+}
 
 .ToolCardHeader {
     display: flex;
     align-items: center;
     gap: 7px;
     padding: 6px 10px;
+    min-height: 32px;
+    color: var(--txt2);
 }
 
 .ToolIcon {
@@ -265,10 +456,20 @@
 }
 
 .ToolName {
-    color: var(--txt2);
+    color: var(--txt3);
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     flex-shrink: 0;
+}
+
+.ToolAction {
+    color: var(--txt2);
+    font-size: 10.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
 }
 
 .ToolArg {
@@ -283,7 +484,10 @@
 }
 
 .ToolStatus {
-    font-size: 10px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     flex-shrink: 0;
     margin-left: auto;
 }
@@ -295,13 +499,296 @@
 .ToolResult {
     padding: 4px 10px 7px 10px;
     border-top: 1px solid var(--brd);
-    color: #dc6464;
+    color: var(--txt2);
     font-family: 'JetBrains Mono', monospace;
     font-size: 9.5px;
-    word-break: break-all;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 220px;
+    overflow: auto;
+}
+
+.ToolResultMuted {
+    padding: 0 10px 8px 31px;
+    color: var(--txt3);
+    font-size: 9.5px;
+    line-height: 1.45;
+}
+
+.ChangePreview {
+    border-top: 1px solid var(--brd);
+    padding: 7px 10px 8px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    line-height: 1.55;
+    background: rgba(0,0,0,0.12);
+    max-height: 260px;
+    overflow: auto;
+}
+
+.ChangeTitle {
+    color: var(--txt2);
+    margin-bottom: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ChangeMeta {
+    color: var(--txt3);
+}
+
+.ChangeAdd {
+    color: #8ee6a4;
+    background: rgba(100,220,130,0.055);
+}
+
+.ChangeRemove {
+    color: #c97070;
+    background: transparent;
+}
+
+.AiChangeCard {
+    border-radius: 7px;
+    border: 1px solid rgba(100,180,220,0.32);
+    background: rgba(100,180,220,0.085);
+    overflow: hidden;
+    min-height: 58px;
+    color: var(--txt2);
+    animation: ToolIn 0.18s var(--smooth-out) both;
+}
+
+.AiChangeHeader {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 10px 5px 10px;
+    min-width: 0;
+}
+
+.AiChangeStatus {
+    color: #8ac7e8;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+}
+
+.AiChangePath {
+    color: var(--txt2);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.AiChangeKind {
+    color: var(--txt3);
+    font-size: 9px;
+    text-transform: uppercase;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.AiChangeOpen {
+    padding: 2px 7px;
+    border-radius: 5px;
+    border: 1px solid rgba(138,199,232,0.22);
+    background: rgba(138,199,232,0.07);
+    color: #8ac7e8;
+    font-family: inherit;
+    font-size: 9px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background var(--tf), border-color var(--tf), color var(--tf);
+    flex-shrink: 0;
+}
+
+.AiChangeOpen:hover {
+    background: rgba(138,199,232,0.13);
+    border-color: rgba(138,199,232,0.34);
+    color: #a8daf4;
+}
+
+.AiChangeMeta {
+    color: var(--txt3);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    padding: 0 10px 6px 10px;
+}
+
+.AiChangePreview {
+    border-top: 1px solid rgba(255,255,255,0.05);
+    background: rgba(0,0,0,0.12);
+    padding: 7px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    line-height: 1.55;
+    max-height: 220px;
+    overflow: auto;
 }
 
 /* ── Approval card ────────────────────────────────────────────────────────── */
+
+/* Question card */
+
+.QuestionCard {
+    border-radius: 7px;
+    border: 1px solid rgba(138,199,232,0.28);
+    background: rgba(138,199,232,0.055);
+    padding: 10px 12px;
+    color: var(--txt2);
+    animation: ToolIn 0.18s var(--smooth-out) both;
+}
+
+.QuestionHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 9px;
+}
+
+.QuestionTitle {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--txt);
+}
+
+.QuestionStatus {
+    color: #8ac7e8;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.QuestionBlock {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-top: 9px;
+}
+
+.QuestionText {
+    color: var(--txt2);
+    font-size: 10.5px;
+    line-height: 1.45;
+}
+
+.QuestionOptions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+    gap: 6px;
+}
+
+.QuestionOption {
+    min-height: 44px;
+    border-radius: 6px;
+    border: 1px solid var(--brd);
+    background: rgba(255,255,255,0.025);
+    color: var(--txt2);
+    padding: 6px 8px;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background var(--tf), border-color var(--tf), color var(--tf);
+}
+
+.QuestionOption span,
+.QuestionOption small {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+.QuestionOption span {
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.QuestionOption small {
+    color: var(--txt3);
+    font-size: 9px;
+    line-height: 1.35;
+    margin-top: 3px;
+}
+
+.QuestionOption:hover:not(:disabled) {
+    background: rgba(138,199,232,0.08);
+    border-color: rgba(138,199,232,0.22);
+}
+
+.QuestionOptionActive {
+    border-color: rgba(138,199,232,0.42);
+    background: rgba(138,199,232,0.13);
+    color: #a8daf4;
+}
+
+.QuestionOption:disabled {
+    cursor: default;
+    opacity: 0.72;
+}
+
+.QuestionChatInput {
+    width: 100%;
+    min-height: 54px;
+    max-height: 110px;
+    resize: vertical;
+    background: rgba(0,0,0,0.15);
+    border: 1px solid var(--brd);
+    border-radius: 6px;
+    color: var(--txt);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    line-height: 1.5;
+    padding: 7px 9px;
+    outline: none;
+}
+
+.QuestionChatInput:focus {
+    border-color: rgba(138,199,232,0.32);
+}
+
+.QuestionSubmit {
+    margin-top: 10px;
+    padding: 5px 12px;
+    border-radius: 5px;
+    border: 1px solid rgba(138,199,232,0.28);
+    background: rgba(138,199,232,0.09);
+    color: #8ac7e8;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background var(--tf), transform calc(var(--td)*0.5) var(--spring);
+}
+
+.QuestionSubmit:hover:not(:disabled) {
+    background: rgba(138,199,232,0.16);
+}
+
+.QuestionSubmit:active:not(:disabled) {
+    transform: scale(0.96);
+}
+
+.QuestionSubmit:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.QuestionResult {
+    margin-top: 9px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    padding-top: 8px;
+    color: var(--txt3);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
 
 .ApprovalCard {
     border-radius: 7px;

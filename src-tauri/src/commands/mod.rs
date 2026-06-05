@@ -1,14 +1,16 @@
 pub mod agent;
 
+use mlua::{Lua, MultiValue as LuaMultiValue, Table as LuaTable, Value as LuaValue};
+use serde::Serialize;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
-use tauri::{AppHandle, State};
-use serde::Serialize;
-use mlua::{Lua, Value as LuaValue, MultiValue as LuaMultiValue, Table as LuaTable};
 use sysinfo::System;
+use tauri::{AppHandle, State};
 
-use crate::renderer::{NyxRenderer, window as nyx_window};
+use crate::renderer::{window as nyx_window, NyxRenderer};
+use crate::state::{AppState, FileRecord};
 
 const ROBLOX_SHIM: &str = include_str!("../../../nyx_runtime/roblox/init.lua");
 const UNITY_SHIM: &str = include_str!("../../../nyx_runtime/unity/init.cs");
@@ -18,9 +20,9 @@ static SYS_MONITOR: OnceLock<Mutex<System>> = OnceLock::new();
 
 #[derive(Serialize)]
 pub struct SystemStats {
-    pub cpu_usage:         f32,
-    pub memory_used_mb:    u64,
-    pub memory_total_mb:   u64,
+    pub cpu_usage: f32,
+    pub memory_used_mb: u64,
+    pub memory_total_mb: u64,
     pub process_memory_mb: u64,
 }
 
@@ -30,21 +32,117 @@ pub fn get_system_stats() -> SystemStats {
     let mut sys = monitor.lock().unwrap_or_else(|e| e.into_inner());
     sys.refresh_all();
 
-    let cpu_usage        = sys.global_cpu_usage();
-    let memory_used_mb   = sys.used_memory()  / (1024 * 1024);
-    let memory_total_mb  = sys.total_memory() / (1024 * 1024);
-    let current_pid      = sysinfo::Pid::from(std::process::id() as usize);
-    let process_memory_mb = sys.process(current_pid)
+    let cpu_usage = sys.global_cpu_usage();
+    let memory_used_mb = sys.used_memory() / (1024 * 1024);
+    let memory_total_mb = sys.total_memory() / (1024 * 1024);
+    let current_pid = sysinfo::Pid::from(std::process::id() as usize);
+    let process_memory_mb = sys
+        .process(current_pid)
         .map(|p| p.memory() / (1024 * 1024))
         .unwrap_or(0);
 
-    SystemStats { cpu_usage, memory_used_mb, memory_total_mb, process_memory_mb }
+    SystemStats {
+        cpu_usage,
+        memory_used_mb,
+        memory_total_mb,
+        process_memory_mb,
+    }
 }
 
 #[derive(Serialize)]
 pub struct FileMetadata {
-    pub size:     u64,
+    pub size: u64,
     pub modified: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct AppStateSnapshot {
+    pub workspace_path: Option<String>,
+    pub open_files: Vec<String>,
+    pub active_file: Option<String>,
+    pub file_metadata: std::collections::HashMap<String, FileRecord>,
+    pub terminal_output: Vec<String>,
+    pub run_output: Vec<String>,
+    pub is_running: bool,
+    pub scene_profile: Option<String>,
+    pub scene_commands: Vec<serde_json::Value>,
+    pub selected_part_id: Option<String>,
+    pub gizmo_mode: String,
+    pub viewport_visible: bool,
+    pub ai_activity: Option<String>,
+    pub ai_pending_approval: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_app_state_snapshot(app_state: State<'_, AppState>) -> Result<AppStateSnapshot, String> {
+    Ok(AppStateSnapshot {
+        workspace_path: app_state
+            .workspace_path
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        open_files: app_state
+            .open_files
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        active_file: app_state
+            .active_file
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        file_metadata: app_state
+            .file_metadata
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        terminal_output: app_state
+            .terminal_output
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        run_output: app_state
+            .run_output
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        is_running: *app_state.is_running.lock().map_err(|e| e.to_string())?,
+        scene_profile: app_state
+            .scene_profile
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        scene_commands: app_state
+            .scene_commands
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        selected_part_id: app_state
+            .selected_part_id
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        gizmo_mode: app_state
+            .gizmo_mode
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        viewport_visible: *app_state
+            .viewport_visible
+            .lock()
+            .map_err(|e| e.to_string())?,
+        ai_activity: app_state
+            .ai_activity
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+        ai_pending_approval: app_state
+            .ai_pending_approval
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+    })
 }
 
 #[tauri::command]
@@ -64,11 +162,23 @@ pub fn list_files(path: String) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
-fn skip_dir(name: &str) -> bool {
-    matches!(name,
-        "node_modules" | ".git" | "target" | "__pycache__" |
-        ".next" | "dist" | "build" | ".svelte-kit" | ".venv" |
-        "venv" | "vendor" | ".idea" | ".vscode" | "aider"
+fn SkipDir(name: &str) -> bool {
+    matches!(
+        name,
+        "node_modules"
+            | ".git"
+            | "target"
+            | "__pycache__"
+            | ".next"
+            | "dist"
+            | "build"
+            | ".svelte-kit"
+            | ".venv"
+            | "venv"
+            | "vendor"
+            | ".idea"
+            | ".vscode"
+            | "aider"
     ) || name.starts_with(".aider")
 }
 
@@ -79,12 +189,13 @@ pub fn list_files_recursive(path: String) -> Result<Vec<String>, String> {
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
         let entry_path = entry.path();
-        let name = entry_path.file_name()
+        let name = entry_path
+            .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         if entry_path.is_file() {
             result.push(entry_path.to_string_lossy().to_string());
-        } else if entry_path.is_dir() && !skip_dir(&name) {
+        } else if entry_path.is_dir() && !SkipDir(&name) {
             let sub_files = list_files_recursive(entry_path.to_string_lossy().to_string())?;
             result.extend(sub_files);
         }
@@ -94,66 +205,136 @@ pub fn list_files_recursive(path: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn open_file(path: String) -> Result<String, String> {
-    fs::read_to_string(&path).map_err(|e| e.to_string())
+pub fn open_file(path: String, app_state: State<'_, AppState>) -> Result<String, String> {
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    {
+        let mut open_files = app_state.open_files.lock().map_err(|e| e.to_string())?;
+        if !open_files.iter().any(|p| p == &path) {
+            open_files.push(path.clone());
+        }
+    }
+    *app_state.active_file.lock().map_err(|e| e.to_string())? = Some(path);
+    Ok(content)
 }
 
 #[tauri::command]
-pub fn save_file(path: String, content: String) -> Result<(), String> {
+pub fn save_file(
+    path: String,
+    content: String,
+    app_state: State<'_, AppState>,
+) -> Result<(), String> {
     fs::write(&path, &content).map_err(|e| e.to_string())?;
+    let metadata = ReadFileMetadata(&path)?;
+    app_state
+        .file_metadata
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(
+            path.clone(),
+            FileRecord {
+                size: metadata.size,
+                modified: metadata.modified,
+            },
+        );
+    {
+        let mut open_files = app_state.open_files.lock().map_err(|e| e.to_string())?;
+        if !open_files.iter().any(|p| p == &path) {
+            open_files.push(path.clone());
+        }
+    }
+    *app_state.active_file.lock().map_err(|e| e.to_string())? = Some(path);
     Ok(())
 }
 
 #[tauri::command]
-pub fn run_terminal_command(command: String) -> Vec<String> {
+pub fn run_terminal_command(command: String, app_state: State<'_, AppState>) -> Vec<String> {
     let output = std::process::Command::new("cmd")
         .args(["/C", &command])
         .output();
-    match output {
+    let lines = match output {
         Ok(out) => {
             let mut lines = vec![format!("$ {}", command)];
             let stdout = String::from_utf8_lossy(&out.stdout);
             for line in stdout.lines() {
                 let t = line.trim_end_matches('\r');
-                if !t.is_empty() { lines.push(t.to_string()); }
+                if !t.is_empty() {
+                    lines.push(t.to_string());
+                }
             }
             let stderr = String::from_utf8_lossy(&out.stderr);
             for line in stderr.lines() {
                 let t = line.trim_end_matches('\r');
-                if !t.is_empty() { lines.push(format!("err: {}", t)); }
+                if !t.is_empty() {
+                    lines.push(format!("err: {}", t));
+                }
             }
             lines
         }
         Err(e) => vec![format!("$ {}", command), format!("err: {}", e)],
+    };
+    if let Ok(mut terminal_output) = app_state.terminal_output.lock() {
+        terminal_output.extend(lines.clone());
     }
+    lines
 }
 
 #[tauri::command]
-pub fn select_folder() -> Result<String, String> {
+pub fn select_folder(app_state: State<'_, AppState>) -> Result<String, String> {
     let dialog = rfd::FileDialog::new().pick_folder();
     match dialog {
-        Some(path) => Ok(path.to_string_lossy().to_string()),
+        Some(path) => {
+            let workspace_path = path.to_string_lossy().to_string();
+            *app_state.workspace_path.lock().map_err(|e| e.to_string())? =
+                Some(workspace_path.clone());
+            Ok(workspace_path)
+        }
         None => Err("No folder selected".to_string()),
     }
 }
 
 #[tauri::command]
-pub fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
-    let meta     = fs::metadata(&path).map_err(|e| e.to_string())?;
-    let size     = meta.len();
-    let modified = meta.modified()
+pub fn get_file_metadata(
+    path: String,
+    app_state: State<'_, AppState>,
+) -> Result<FileMetadata, String> {
+    let metadata = ReadFileMetadata(&path)?;
+    app_state
+        .file_metadata
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(
+            path,
+            FileRecord {
+                size: metadata.size,
+                modified: metadata.modified.clone(),
+            },
+        );
+    Ok(metadata)
+}
+
+fn ReadFileMetadata(path: &str) -> Result<FileMetadata, String> {
+    let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
+    let size = meta.len();
+    let modified = meta
+        .modified()
         .map_err(|e| e.to_string())?
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_secs();
     let secs = modified as i64;
-    let (year, month, day, hour, min, sec) = secs_to_datetime(secs);
-    let modified_str = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hour, min, sec);
+    let (year, month, day, hour, min, sec) = SecsToDatetime(secs);
+    let modified_str = format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        year, month, day, hour, min, sec
+    );
 
-    Ok(FileMetadata { size, modified: modified_str })
+    Ok(FileMetadata {
+        size,
+        modified: modified_str,
+    })
 }
 
-fn secs_to_datetime(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
+fn SecsToDatetime(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     let s = secs % 60;
     let m = (secs / 60) % 60;
     let h = (secs / 3600) % 24;
@@ -162,26 +343,37 @@ fn secs_to_datetime(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     let mut year = 1970i32;
     let mut remaining = days;
     loop {
-        let dy = if is_leap(year) { 366 } else { 365 };
-        if remaining < dy { break; }
+        let dy = if IsLeap(year) { 366 } else { 365 };
+        if remaining < dy {
+            break;
+        }
         remaining -= dy;
         year += 1;
     }
-    let months = if is_leap(year) {
-        [31,29,31,30,31,30,31,31,30,31,30,31]
+    let months = if IsLeap(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     } else {
-        [31,28,31,30,31,30,31,31,30,31,30,31]
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     };
     let mut month = 1u32;
     for dm in &months {
-        if remaining < *dm { break; }
+        if remaining < *dm {
+            break;
+        }
         remaining -= *dm;
         month += 1;
     }
-    (year, month, remaining as u32 + 1, h as u32, m as u32, s as u32)
+    (
+        year,
+        month,
+        remaining as u32 + 1,
+        h as u32,
+        m as u32,
+        s as u32,
+    )
 }
 
-fn is_leap(y: i32) -> bool {
+fn IsLeap(y: i32) -> bool {
     (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
 
@@ -198,14 +390,20 @@ pub fn capture_command(command: String, cwd: String) -> Vec<String> {
             let stdout = String::from_utf8_lossy(&out.stdout);
             for line in stdout.lines() {
                 let t = line.trim_end_matches('\r');
-                if !t.is_empty() { lines.push(t.to_string()); }
+                if !t.is_empty() {
+                    lines.push(t.to_string());
+                }
             }
             let stderr = String::from_utf8_lossy(&out.stderr);
             for line in stderr.lines() {
                 let t = line.trim_end_matches('\r');
-                if !t.is_empty() { lines.push(format!("err: {}", t)); }
+                if !t.is_empty() {
+                    lines.push(format!("err: {}", t));
+                }
             }
-            if lines.is_empty() { lines.push("(no output)".to_string()); }
+            if lines.is_empty() {
+                lines.push("(no output)".to_string());
+            }
             lines
         }
         Err(e) => vec![format!("err: {}", e)],
@@ -213,38 +411,50 @@ pub fn capture_command(command: String, cwd: String) -> Vec<String> {
 }
 
 #[tauri::command]
-pub fn run_file(path: String) -> Vec<String> {
+pub fn run_file(path: String, app_state: State<'_, AppState>) -> Vec<String> {
+    if let Ok(mut is_running) = app_state.is_running.lock() {
+        *is_running = true;
+    }
     let ext = std::path::Path::new(&path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
 
-    match ext.as_str() {
-        "lua" | "luau" => run_lua_embedded(&path),
-        "py"           => run_subprocess("python", &path),
-        "js"           => run_subprocess("node",   &path),
-        _              => vec![format!("No runner configured for .{} files", ext)],
+    let lines = match ext.as_str() {
+        "lua" | "luau" => RunLuaEmbedded(&path),
+        "py" => RunSubprocess("python", &path),
+        "js" => RunSubprocess("node", &path),
+        _ => vec![format!("No runner configured for .{} files", ext)],
+    };
+    if let Ok(mut run_output) = app_state.run_output.lock() {
+        *run_output = lines.clone();
     }
+    if let Ok(mut is_running) = app_state.is_running.lock() {
+        *is_running = false;
+    }
+    lines
 }
 
-fn run_lua_embedded(path: &str) -> Vec<String> {
+fn RunLuaEmbedded(path: &str) -> Vec<String> {
     let code = match fs::read_to_string(path) {
-        Ok(c)  => c,
-        Err(e) => return vec![
-            format!("\u{25b6} {}", path),
-            format!("err: {}", e),
-            "exit 1".to_string(),
-        ],
+        Ok(c) => c,
+        Err(e) => {
+            return vec![
+                format!("\u{25b6} {}", path),
+                format!("err: {}", e),
+                "exit 1".to_string(),
+            ]
+        }
     };
 
-    let lua   = Lua::new();
+    let lua = Lua::new();
     let lines = Arc::new(Mutex::new(vec![format!("\u{25b6} {}", path)]));
-    let sink  = Arc::clone(&lines);
+    let sink = Arc::clone(&lines);
 
     if let Ok(f) = lua.create_function(move |_, args: LuaMultiValue| {
-        let text = args.iter().map(lua_display).collect::<Vec<_>>().join("\t");
-        sink.lock().unwrap().push(text);
+        let Text = args.iter().map(LuaDisplay).collect::<Vec<_>>().join("\t");
+        sink.lock().unwrap().push(Text);
         Ok(())
     }) {
         let _ = lua.globals().set("print", f);
@@ -258,7 +468,7 @@ fn run_lua_embedded(path: &str) -> Vec<String> {
     }
 
     match lua.load(&code).exec() {
-        Ok(_)  => lines.lock().unwrap().push("exit 0".to_string()),
+        Ok(_) => lines.lock().unwrap().push("exit 0".to_string()),
         Err(e) => {
             let mut l = lines.lock().unwrap();
             l.push(format!("err: {}", e));
@@ -270,7 +480,7 @@ fn run_lua_embedded(path: &str) -> Vec<String> {
     result
 }
 
-fn run_subprocess(program: &str, path: &str) -> Vec<String> {
+fn RunSubprocess(program: &str, path: &str) -> Vec<String> {
     let mut lines = vec![format!("\u{25b6} {}", path)];
     match std::process::Command::new(program).arg(path).output() {
         Ok(out) => {
@@ -298,13 +508,13 @@ fn run_subprocess(program: &str, path: &str) -> Vec<String> {
 pub struct RunSceneResult {
     pub commands: Vec<serde_json::Value>,
     pub terminal: Vec<String>,
-    pub errors:   Vec<String>,
-    pub skipped:  bool,
+    pub errors: Vec<String>,
+    pub skipped: bool,
 }
 
 #[tauri::command]
 pub fn run_scene(path: String, profile: String) -> Result<RunSceneResult, String> {
-    run_scene_at_time(path, profile, None)
+    RunSceneAtTime(path, profile, None)
 }
 
 #[tauri::command]
@@ -326,38 +536,53 @@ pub fn run_live_scene(
             });
         }
     }
-    run_scene_at_time(path, profile, Some(elapsed))
+    RunSceneAtTime(path, profile, Some(elapsed))
 }
 
-fn run_scene_at_time(path: String, profile: String, elapsed: Option<f64>) -> Result<RunSceneResult, String> {
-    let profile = resolve_scene_profile(&path, &profile);
-    let user_code = fs::read_to_string(&path)
-        .map_err(|e| format!("Cannot read scene file: {}", e))?;
+fn RunSceneAtTime(
+    path: String,
+    profile: String,
+    elapsed: Option<f64>,
+) -> Result<RunSceneResult, String> {
+    let profile = ResolveSceneProfile(&path, &profile);
+    let user_code =
+        fs::read_to_string(&path).map_err(|e| format!("Cannot read scene file: {}", e))?;
 
     match profile.as_str() {
-        "roblox" => run_lua_scene_at_time(&path, &user_code, elapsed),
-        "unity"  => run_embedded_scene_commands(&path, &user_code, "Unity C# shim", UNITY_SHIM),
-        "unreal" => run_embedded_scene_commands(&path, &user_code, "Unreal C++ shim", UNREAL_SHIM),
-        other    => Err(format!("Unknown engine profile: '{}'", other)),
+        "roblox" => RunLuaSceneAtTime(&path, &user_code, elapsed),
+        "unity" => RunEmbeddedSceneCommands(&path, &user_code, "Unity C# shim", UNITY_SHIM),
+        "unreal" => RunEmbeddedSceneCommands(&path, &user_code, "Unreal C++ shim", UNREAL_SHIM),
+        other => Err(format!("Unknown engine profile: '{}'", other)),
     }
 }
 
-fn run_lua_scene_at_time(path: &str, user_code: &str, elapsed: Option<f64>) -> Result<RunSceneResult, String> {
-    let lua      = Lua::new();
+fn RunLuaSceneAtTime(
+    path: &str,
+    user_code: &str,
+    elapsed: Option<f64>,
+) -> Result<RunSceneResult, String> {
+    let lua = Lua::new();
     let captured = Arc::new(Mutex::new(Vec::<String>::new()));
-    let sink     = Arc::clone(&captured);
+    let sink = Arc::clone(&captured);
 
-    let print_fn = lua.create_function(move |_, args: LuaMultiValue| {
-        let text = args.iter().map(lua_display).collect::<Vec<_>>().join("\t");
-        sink.lock().unwrap().push(text);
-        Ok(())
-    }).map_err(|e| e.to_string())?;
-    lua.globals().set("print", print_fn).map_err(|e| e.to_string())?;
+    let print_fn = lua
+        .create_function(move |_, args: LuaMultiValue| {
+            let Text = args.iter().map(LuaDisplay).collect::<Vec<_>>().join("\t");
+            sink.lock().unwrap().push(Text);
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+    lua.globals()
+        .set("print", print_fn)
+        .map_err(|e| e.to_string())?;
     if let Some(elapsed) = elapsed {
-        lua.globals().set("_NYX_LIVE_TIME", elapsed).map_err(|e| e.to_string())?;
+        lua.globals()
+            .set("_NYX_LIVE_TIME", elapsed)
+            .map_err(|e| e.to_string())?;
     }
 
-    lua.load(ROBLOX_SHIM).exec()
+    lua.load(ROBLOX_SHIM)
+        .exec()
         .map_err(|e| format!("Runtime shim error: {}", e))?;
 
     let mut errors = Vec::new();
@@ -375,9 +600,9 @@ fn run_lua_scene_at_time(path: &str, user_code: &str, elapsed: Option<f64>) -> R
         }
     }
 
-    let (commands, cmd_err) = match read_nyx_commands(&lua) {
+    let (commands, cmd_err) = match ReadNyxCommands(&lua) {
         Ok(cmds) => (cmds, None),
-        Err(e)   => (vec![], Some(e)),
+        Err(e) => (vec![], Some(e)),
     };
     if let Some(e) = cmd_err {
         errors.push(format!("_NYX_COMMANDS read error: {}", e));
@@ -388,17 +613,21 @@ fn run_lua_scene_at_time(path: &str, user_code: &str, elapsed: Option<f64>) -> R
         terminal.push(format!("runtime: Roblox Luau shim ({})", path));
     }
 
-    Ok(RunSceneResult { commands, terminal, errors, skipped: false })
+    Ok(RunSceneResult {
+        commands,
+        terminal,
+        errors,
+        skipped: false,
+    })
 }
 
-fn run_embedded_scene_commands(
+fn RunEmbeddedSceneCommands(
     path: &str,
     user_code: &str,
     shim_label: &str,
     shim_source: &str,
 ) -> Result<RunSceneResult, String> {
-    let json_text = extract_nyx_scene_json(user_code)
-        .map_err(|e| format!("{}: {}", path, e))?;
+    let json_text = ExtractNyxSceneJson(user_code).map_err(|e| format!("{}: {}", path, e))?;
     let value: serde_json::Value = serde_json::from_str(json_text)
         .map_err(|e| format!("{}: invalid @nyx-scene JSON: {}", path, e))?;
     let commands = match value {
@@ -418,7 +647,7 @@ fn run_embedded_scene_commands(
     })
 }
 
-fn resolve_scene_profile(path: &str, requested: &str) -> String {
+fn ResolveSceneProfile(path: &str, requested: &str) -> String {
     let requested = requested.trim().to_ascii_lowercase();
     if !requested.is_empty() && requested != "auto" {
         return requested;
@@ -436,19 +665,23 @@ fn resolve_scene_profile(path: &str, requested: &str) -> String {
     }
 }
 
-fn extract_nyx_scene_json(source: &str) -> Result<&str, String> {
+fn ExtractNyxSceneJson(source: &str) -> Result<&str, String> {
     let marker = "@nyx-scene";
-    let marker_pos = source.find(marker)
+    let marker_pos = source
+        .find(marker)
         .ok_or_else(|| "missing @nyx-scene command block".to_string())?;
     let tail = &source[marker_pos + marker.len()..];
-    let start = tail.find(|ch| ch == '[' || ch == '{')
+    let start = tail
+        .find(|ch| ch == '[' || ch == '{')
         .ok_or_else(|| "@nyx-scene block does not contain JSON".to_string())?;
-    let end = json_block_end(tail, start)?;
+    let end = JsonBlockEnd(tail, start)?;
     Ok(&tail[start..end])
 }
 
-fn json_block_end(source: &str, start: usize) -> Result<usize, String> {
-    let open = source[start..].chars().next()
+fn JsonBlockEnd(source: &str, start: usize) -> Result<usize, String> {
+    let open = source[start..]
+        .chars()
+        .next()
         .ok_or_else(|| "@nyx-scene block is empty".to_string())?;
     let close = match open {
         '[' => ']',
@@ -486,84 +719,141 @@ fn json_block_end(source: &str, start: usize) -> Result<usize, String> {
     Err("@nyx-scene JSON block is not closed".to_string())
 }
 
-fn read_nyx_commands(lua: &Lua) -> Result<Vec<serde_json::Value>, String> {
-    let tbl: LuaTable = lua.globals()
+fn ReadNyxCommands(lua: &Lua) -> Result<Vec<serde_json::Value>, String> {
+    let tbl: LuaTable = lua
+        .globals()
         .get("_NYX_COMMANDS")
         .map_err(|_| "_NYX_COMMANDS missing — did the shim load?".to_string())?;
 
     let mut out = Vec::new();
     for item in tbl.sequence_values::<LuaTable>() {
         let cmd = item.map_err(|e| e.to_string())?;
-        out.push(lua_table_to_json(cmd));
+        out.push(LuaTableToJson(cmd));
     }
     Ok(out)
 }
 
-fn lua_table_to_json(tbl: LuaTable) -> serde_json::Value {
+fn LuaTableToJson(tbl: LuaTable) -> serde_json::Value {
     let len = tbl.raw_len();
     if len > 0 {
         let arr = (1..=len)
             .filter_map(|i| tbl.raw_get::<LuaValue>(i as i64).ok())
-            .map(lua_value_to_json)
+            .map(LuaValueToJson)
             .collect();
         return serde_json::Value::Array(arr);
     }
     let mut map = serde_json::Map::new();
     for pair in tbl.pairs::<String, LuaValue>() {
         if let Ok((k, v)) = pair {
-            map.insert(k, lua_value_to_json(v));
+            map.insert(k, LuaValueToJson(v));
         }
     }
     serde_json::Value::Object(map)
 }
 
-fn lua_value_to_json(v: LuaValue) -> serde_json::Value {
+fn LuaValueToJson(v: LuaValue) -> serde_json::Value {
     match v {
-        LuaValue::Nil        => serde_json::Value::Null,
+        LuaValue::Nil => serde_json::Value::Null,
         LuaValue::Boolean(b) => serde_json::Value::Bool(b),
         LuaValue::Integer(i) => serde_json::Value::Number(i.into()),
-        LuaValue::Number(n)  => serde_json::Number::from_f64(n)
-                                    .map(serde_json::Value::Number)
-                                    .unwrap_or(serde_json::Value::Null),
-        LuaValue::String(s)  => serde_json::Value::String(
-                                    String::from_utf8_lossy(&s.as_bytes()).into_owned()),
-        LuaValue::Table(t)   => lua_table_to_json(t),
-        _                    => serde_json::Value::Null,
+        LuaValue::Number(n) => serde_json::Number::from_f64(n)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        LuaValue::String(s) => {
+            serde_json::Value::String(String::from_utf8_lossy(&s.as_bytes()).into_owned())
+        }
+        LuaValue::Table(t) => LuaTableToJson(t),
+        _ => serde_json::Value::Null,
     }
 }
 
-fn lua_display(v: &LuaValue) -> String {
+fn LuaDisplay(v: &LuaValue) -> String {
     match v {
-        LuaValue::Nil        => "nil".to_string(),
+        LuaValue::Nil => "nil".to_string(),
         LuaValue::Boolean(b) => b.to_string(),
         LuaValue::Integer(i) => i.to_string(),
-        LuaValue::Number(n)  => {
-            if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", *n as i64) }
-            else { format!("{n}") }
+        LuaValue::Number(n) => {
+            if n.fract() == 0.0 && n.abs() < 1e15 {
+                format!("{}", *n as i64)
+            } else {
+                format!("{n}")
+            }
         }
-        LuaValue::String(s)  => String::from_utf8_lossy(&s.as_bytes()).into_owned(),
-        LuaValue::Table(_)   => "(table)".to_string(),
-        _                    => "(value)".to_string(),
+        LuaValue::String(s) => String::from_utf8_lossy(&s.as_bytes()).into_owned(),
+        LuaValue::Table(_) => "(table)".to_string(),
+        _ => "(value)".to_string(),
     }
 }
 
 #[tauri::command]
-pub fn delete_path(path: String) -> Result<(), String> {
+pub fn delete_path(path: String, app_state: State<'_, AppState>) -> Result<(), String> {
     let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
+    let is_dir = meta.is_dir();
     if meta.is_dir() {
-        fs::remove_dir_all(&path).map_err(|e| e.to_string())
+        fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
     } else {
-        fs::remove_file(&path).map_err(|e| e.to_string())
+        fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
+    let deleted_path = PathBuf::from(&path);
+    app_state
+        .open_files
+        .lock()
+        .map_err(|e| e.to_string())?
+        .retain(|open_path| !PathMatchesTarget(open_path, &deleted_path, is_dir));
+    app_state
+        .file_metadata
+        .lock()
+        .map_err(|e| e.to_string())?
+        .retain(|file_path, _| !PathMatchesTarget(file_path, &deleted_path, is_dir));
+    let mut active_file = app_state.active_file.lock().map_err(|e| e.to_string())?;
+    if active_file
+        .as_ref()
+        .map(|active| PathMatchesTarget(active, &deleted_path, is_dir))
+        .unwrap_or(false)
+    {
+        *active_file = None;
+    }
+    Ok(())
 }
 
 #[tauri::command]
-pub fn rename_path(path: String, new_name: String) -> Result<String, String> {
-    let old    = std::path::Path::new(&path);
+pub fn rename_path(
+    path: String,
+    new_name: String,
+    app_state: State<'_, AppState>,
+) -> Result<String, String> {
+    let old = std::path::Path::new(&path);
     let parent = old.parent().ok_or("No parent directory")?;
-    let new    = parent.join(&new_name);
+    let new = parent.join(&new_name);
+    let is_dir = fs::metadata(&path).map_err(|e| e.to_string())?.is_dir();
     fs::rename(&path, &new).map_err(|e| e.to_string())?;
-    Ok(new.to_string_lossy().to_string())
+    let new_path = new.to_string_lossy().to_string();
+    {
+        let mut open_files = app_state.open_files.lock().map_err(|e| e.to_string())?;
+        for open_path in open_files.iter_mut() {
+            if let Some(rebased) = RebasePath(open_path, old, &new, is_dir) {
+                *open_path = rebased;
+            }
+        }
+    }
+    {
+        let mut active_file = app_state.active_file.lock().map_err(|e| e.to_string())?;
+        if let Some(active) = active_file
+            .as_ref()
+            .and_then(|value| RebasePath(value, old, &new, is_dir))
+        {
+            *active_file = Some(active);
+        }
+    }
+    {
+        let mut metadata = app_state.file_metadata.lock().map_err(|e| e.to_string())?;
+        let entries: Vec<(String, FileRecord)> = metadata.drain().collect();
+        for (file_path, record) in entries {
+            let key = RebasePath(&file_path, old, &new, is_dir).unwrap_or(file_path);
+            metadata.insert(key, record);
+        }
+    }
+    Ok(new_path)
 }
 
 #[tauri::command]
@@ -571,14 +861,36 @@ pub fn create_folder(path: String) -> Result<(), String> {
     fs::create_dir_all(&path).map_err(|e| e.to_string())
 }
 
+fn PathMatchesTarget(value: &str, target: &Path, target_is_dir: bool) -> bool {
+    let candidate = Path::new(value);
+    if target_is_dir {
+        candidate.starts_with(target)
+    } else {
+        candidate == target
+    }
+}
+
+fn RebasePath(value: &str, old: &Path, new: &Path, old_is_dir: bool) -> Option<String> {
+    let candidate = Path::new(value);
+    if old_is_dir {
+        let suffix = candidate.strip_prefix(old).ok()?;
+        return Some(new.join(suffix).to_string_lossy().to_string());
+    }
+    if candidate == old {
+        return Some(new.to_string_lossy().to_string());
+    }
+    None
+}
+
 type RendererState = Arc<Mutex<NyxRenderer>>;
 
 #[tauri::command]
 pub fn renderer_camera_orbit(
-    dx: f32, dy: f32,
+    dx: f32,
+    dy: f32,
     renderer: State<'_, RendererState>,
 ) -> Result<(), String> {
-    let r  = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut ci = r.camera_input.lock().map_err(|e| e.to_string())?;
     ci.orbit_dx += dx;
     ci.orbit_dy += dy;
@@ -587,10 +899,11 @@ pub fn renderer_camera_orbit(
 
 #[tauri::command]
 pub fn renderer_camera_pan(
-    dx: f32, dy: f32,
+    dx: f32,
+    dy: f32,
     renderer: State<'_, RendererState>,
 ) -> Result<(), String> {
-    let r  = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut ci = r.camera_input.lock().map_err(|e| e.to_string())?;
     ci.pan_dx += dx;
     ci.pan_dy += dy;
@@ -598,11 +911,8 @@ pub fn renderer_camera_pan(
 }
 
 #[tauri::command]
-pub fn renderer_camera_zoom(
-    delta: f32,
-    renderer: State<'_, RendererState>,
-) -> Result<(), String> {
-    let r  = renderer.lock().map_err(|e| e.to_string())?;
+pub fn renderer_camera_zoom(delta: f32, renderer: State<'_, RendererState>) -> Result<(), String> {
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut ci = r.camera_input.lock().map_err(|e| e.to_string())?;
     ci.zoom += delta;
     Ok(())
@@ -610,54 +920,84 @@ pub fn renderer_camera_zoom(
 
 #[tauri::command]
 pub fn renderer_camera_wasd(
-    forward: f32, right: f32, up: f32,
+    forward: f32,
+    right: f32,
+    up: f32,
     renderer: State<'_, RendererState>,
 ) -> Result<(), String> {
-    let r  = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut ci = r.camera_input.lock().map_err(|e| e.to_string())?;
     ci.forward += forward;
-    ci.right   += right;
-    ci.up      += up;
+    ci.right += right;
+    ci.up += up;
     Ok(())
 }
 
 #[tauri::command]
 pub fn renderer_camera_right_mouse(
-    down: bool,
-    renderer: State<'_, RendererState>,
+    _down: bool,
+    _renderer: State<'_, RendererState>,
 ) -> Result<(), String> {
-    // This command is a no‑op on the Rust side; the frontend uses it to
-    // know when to capture mouse events.  We keep it for future use.
     Ok(())
 }
 
-fn ray_aabb_intersect(origin: glam::Vec3, dir: glam::Vec3, min: glam::Vec3, max: glam::Vec3) -> Option<f32> {
+fn RayAabbIntersect(
+    origin: glam::Vec3,
+    dir: glam::Vec3,
+    min: glam::Vec3,
+    max: glam::Vec3,
+) -> Option<f32> {
     let inv_dir = 1.0 / dir;
     let mut tmin = (min.x - origin.x) * inv_dir.x;
     let mut tmax = (max.x - origin.x) * inv_dir.x;
-    if inv_dir.x < 0.0 { std::mem::swap(&mut tmin, &mut tmax); }
+    if inv_dir.x < 0.0 {
+        std::mem::swap(&mut tmin, &mut tmax);
+    }
 
     let mut tymin = (min.y - origin.y) * inv_dir.y;
     let mut tymax = (max.y - origin.y) * inv_dir.y;
-    if inv_dir.y < 0.0 { std::mem::swap(&mut tymin, &mut tymax); }
+    if inv_dir.y < 0.0 {
+        std::mem::swap(&mut tymin, &mut tymax);
+    }
 
-    if tmin > tymax || tymin > tmax { return None; }
-    if tymin > tmin { tmin = tymin; }
-    if tymax < tmax { tmax = tymax; }
+    if tmin > tymax || tymin > tmax {
+        return None;
+    }
+    if tymin > tmin {
+        tmin = tymin;
+    }
+    if tymax < tmax {
+        tmax = tymax;
+    }
 
     let mut tzmin = (min.z - origin.z) * inv_dir.z;
     let mut tzmax = (max.z - origin.z) * inv_dir.z;
-    if inv_dir.z < 0.0 { std::mem::swap(&mut tzmin, &mut tzmax); }
+    if inv_dir.z < 0.0 {
+        std::mem::swap(&mut tzmin, &mut tzmax);
+    }
 
-    if tmin > tzmax || tzmin > tmax { return None; }
-    if tzmin > tmin { tmin = tzmin; }
-    if tzmax < tmax { tmax = tzmax; }
+    if tmin > tzmax || tzmin > tmax {
+        return None;
+    }
+    if tzmin > tmin {
+        tmin = tzmin;
+    }
+    if tzmax < tmax {
+        tmax = tzmax;
+    }
 
-    if tmax < 0.0 { return None; }
+    if tmax < 0.0 {
+        return None;
+    }
     Some(tmin.max(0.0))
 }
 
-fn dist_ray_segment(ray_origin: glam::Vec3, ray_dir: glam::Vec3, p0: glam::Vec3, p1: glam::Vec3) -> f32 {
+fn DistRaySegment(
+    ray_origin: glam::Vec3,
+    ray_dir: glam::Vec3,
+    p0: glam::Vec3,
+    p1: glam::Vec3,
+) -> f32 {
     let u = ray_dir;
     let v = p1 - p0;
     let w = ray_origin - p0;
@@ -694,44 +1034,65 @@ fn dist_ray_segment(ray_origin: glam::Vec3, ray_dir: glam::Vec3, p0: glam::Vec3,
 
 // t on the infinite line (line_o + t*line_d) closest to the given ray — used
 // for axis-constrained gizmo drag; delta t equals world-space displacement along the axis.
-fn closest_t_on_line(
-    ray_o:  glam::Vec3,
-    ray_d:  glam::Vec3,
+fn ClosestTOnLine(
+    ray_o: glam::Vec3,
+    ray_d: glam::Vec3,
     line_o: glam::Vec3,
     line_d: glam::Vec3,
 ) -> f32 {
-    let w   = ray_o - line_o;
-    let b   = ray_d.dot(line_d);
-    let d   = ray_d.dot(w);
-    let e   = line_d.dot(w);
+    let w = ray_o - line_o;
+    let b = ray_d.dot(line_d);
+    let d = ray_d.dot(w);
+    let e = line_d.dot(w);
     let den = 1.0 - b * b;
-    if den.abs() < 1e-6 { return e; }
+    if den.abs() < 1e-6 {
+        return e;
+    }
     (e - b * d) / den
 }
 
 #[tauri::command]
 pub fn renderer_gizmo_hit_test(
-    x: f32, y: f32, width: f32, height: f32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
     renderer: State<'_, RendererState>,
 ) -> Result<Option<String>, String> {
     let r = renderer.lock().map_err(|e| e.to_string())?;
     let s = r.state.lock().map_err(|e| e.to_string())?;
 
-    let sel = match &s.selected { Some(id) => id.clone(), None => return Ok(None) };
+    let sel = match &s.selected {
+        Some(id) => id.clone(),
+        None => return Ok(None),
+    };
 
-    let ndc_x = (x / width)  * 2.0 - 1.0;
+    let ndc_x = (x / width) * 2.0 - 1.0;
     let ndc_y = 1.0 - (y / height) * 2.0;
-    let (origin, dir) = s.camera.get_ray(ndc_x, ndc_y);
+    let (origin, dir) = s.camera.GetRay(ndc_x, ndc_y);
 
     for cmd in &s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
-        if cmd.get("Id").and_then(|v| v.as_str())  != Some(sel.as_str()) { continue; }
+        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+            continue;
+        }
+        if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
+            continue;
+        }
 
         let gf = |k: &str, f: &str| -> f32 {
-            cmd.get(k).and_then(|o| o.get(f)).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+            cmd.get(k)
+                .and_then(|o| o.get(f))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0) as f32
         };
-        let c   = glam::Vec3::new(gf("Position","X"), gf("Position","Y"), gf("Position","Z"));
-        let sx  = gf("Size","X"); let sy = gf("Size","Y"); let sz = gf("Size","Z");
+        let c = glam::Vec3::new(
+            gf("Position", "X"),
+            gf("Position", "Y"),
+            gf("Position", "Z"),
+        );
+        let sx = gf("Size", "X");
+        let sy = gf("Size", "Y");
+        let sz = gf("Size", "Z");
 
         match s.gizmo_mode.as_str() {
             "rotate" => {
@@ -739,12 +1100,20 @@ pub fn renderer_gizmo_hit_test(
                 let thr = 0.4_f32;
                 let test_ring = |plane_normal: glam::Vec3| -> Option<f32> {
                     let denom = plane_normal.dot(dir);
-                    if denom.abs() < 1e-6 { return None; }
+                    if denom.abs() < 1e-6 {
+                        return None;
+                    }
                     let t = plane_normal.dot(c - origin) / denom;
-                    if t < 0.0 { return None; }
+                    if t < 0.0 {
+                        return None;
+                    }
                     let hit = origin + dir * t;
                     let dist = ((hit - c).length() - radius).abs();
-                    if dist < thr { Some(dist) } else { None }
+                    if dist < thr {
+                        Some(dist)
+                    } else {
+                        None
+                    }
                 };
                 let dx = test_ring(glam::Vec3::X);
                 let dy = test_ring(glam::Vec3::Y);
@@ -753,7 +1122,9 @@ pub fn renderer_gizmo_hit_test(
                     .into_iter()
                     .filter_map(|(ax, d)| d.map(|v| (ax, v)))
                     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-                if let Some((ax, _)) = best { return Ok(Some(ax.into())); }
+                if let Some((ax, _)) = best {
+                    return Ok(Some(ax.into()));
+                }
             }
             "scale" => {
                 let len = 6.0_f32;
@@ -763,7 +1134,8 @@ pub fn renderer_gizmo_hit_test(
                     ("Y", c + glam::Vec3::Y * len),
                     ("Z", c + glam::Vec3::Z * len),
                 ];
-                let best = tips.iter()
+                let best = tips
+                    .iter()
                     .map(|(ax, tip)| {
                         let v = *tip - origin;
                         let t = v.dot(dir);
@@ -772,17 +1144,26 @@ pub fn renderer_gizmo_hit_test(
                     })
                     .filter(|(_, d)| *d < thr)
                     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-                if let Some((ax, _)) = best { return Ok(Some((*ax).into())); }
+                if let Some((ax, _)) = best {
+                    return Ok(Some((*ax).into()));
+                }
             }
-            _ => { // "move"
+            _ => {
+                // "move"
                 let len = 6.0_f32;
-                let dx  = dist_ray_segment(origin, dir, c, c + glam::Vec3::X * len);
-                let dy  = dist_ray_segment(origin, dir, c, c + glam::Vec3::Y * len);
-                let dz  = dist_ray_segment(origin, dir, c, c + glam::Vec3::Z * len);
+                let dx = DistRaySegment(origin, dir, c, c + glam::Vec3::X * len);
+                let dy = DistRaySegment(origin, dir, c, c + glam::Vec3::Y * len);
+                let dz = DistRaySegment(origin, dir, c, c + glam::Vec3::Z * len);
                 let thr = 0.8_f32;
-                if dx < thr && dx < dy && dx < dz { return Ok(Some("X".into())); }
-                if dy < thr && dy < dz            { return Ok(Some("Y".into())); }
-                if dz < thr                       { return Ok(Some("Z".into())); }
+                if dx < thr && dx < dy && dx < dz {
+                    return Ok(Some("X".into()));
+                }
+                if dy < thr && dy < dz {
+                    return Ok(Some("Y".into()));
+                }
+                if dz < thr {
+                    return Ok(Some("Z".into()));
+                }
             }
         }
         break;
@@ -793,23 +1174,26 @@ pub fn renderer_gizmo_hit_test(
 
 #[tauri::command]
 pub fn renderer_gizmo_drag(
-    axis:   String,
-    prev_x: f32, prev_y: f32,
-    curr_x: f32, curr_y: f32,
-    width:  f32, height: f32,
+    axis: String,
+    prev_x: f32,
+    prev_y: f32,
+    curr_x: f32,
+    curr_y: f32,
+    width: f32,
+    height: f32,
     renderer: State<'_, RendererState>,
 ) -> Result<Option<[f32; 3]>, String> {
-    let r   = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
 
     let sel = match s.selected.clone() {
         Some(id) => id,
-        None     => return Ok(None),
+        None => return Ok(None),
     };
 
     if !s.drag_undo_pushed {
         let mut u = r.undo.lock().map_err(|e| e.to_string())?;
-        push_undo(&s, &mut u);
+        PushUndo(&s, &mut u);
         s.drag_undo_pushed = true;
     }
 
@@ -817,38 +1201,55 @@ pub fn renderer_gizmo_drag(
         "X" => glam::Vec3::X,
         "Y" => glam::Vec3::Y,
         "Z" => glam::Vec3::Z,
-        _   => return Ok(None),
+        _ => return Ok(None),
     };
 
-    let part_pos = {
+    let PartPos = {
         let mut found = None;
         for cmd in &s.commands {
-            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
-            if cmd.get("Id").and_then(|v| v.as_str())  != Some(sel.as_str()) { continue; }
+            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+                continue;
+            }
+            if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
+                continue;
+            }
             let f = |k: &str, ff: &str| -> f32 {
-                cmd.get(k).and_then(|o| o.get(ff)).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+                cmd.get(k)
+                    .and_then(|o| o.get(ff))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as f32
             };
-            found = Some(glam::Vec3::new(f("Position","X"), f("Position","Y"), f("Position","Z")));
+            found = Some(glam::Vec3::new(
+                f("Position", "X"),
+                f("Position", "Y"),
+                f("Position", "Z"),
+            ));
             break;
         }
-        match found { Some(p) => p, None => return Ok(None) }
+        match found {
+            Some(p) => p,
+            None => return Ok(None),
+        }
     };
 
-    let to_ndc = |sx: f32, sy: f32| -> (f32, f32) {
-        ((sx / width) * 2.0 - 1.0, 1.0 - (sy / height) * 2.0)
-    };
+    let to_ndc =
+        |sx: f32, sy: f32| -> (f32, f32) { ((sx / width) * 2.0 - 1.0, 1.0 - (sy / height) * 2.0) };
     let (pnx, pny) = to_ndc(prev_x, prev_y);
     let (cnx, cny) = to_ndc(curr_x, curr_y);
-    let (po, pd) = s.camera.get_ray(pnx, pny);
-    let (co, cd) = s.camera.get_ray(cnx, cny);
+    let (po, pd) = s.camera.GetRay(pnx, pny);
+    let (co, cd) = s.camera.GetRay(cnx, cny);
 
-    let t_prev  = closest_t_on_line(po, pd, part_pos, axis_dir);
-    let t_curr  = closest_t_on_line(co, cd, part_pos, axis_dir);
-    let new_pos = part_pos + axis_dir * (t_curr - t_prev);
+    let t_prev = ClosestTOnLine(po, pd, PartPos, axis_dir);
+    let t_curr = ClosestTOnLine(co, cd, PartPos, axis_dir);
+    let new_pos = PartPos + axis_dir * (t_curr - t_prev);
 
     for cmd in &mut s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
-        if cmd.get("Id").and_then(|v| v.as_str())  != Some(sel.as_str()) { continue; }
+        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+            continue;
+        }
+        if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
+            continue;
+        }
         if let Some(p) = cmd.get_mut("Position") {
             *p = serde_json::json!({"X": new_pos.x, "Y": new_pos.y, "Z": new_pos.z});
         }
@@ -865,8 +1266,12 @@ pub fn renderer_gizmo_drag(
 
 #[tauri::command]
 pub fn renderer_click(
-    x: f32, y: f32, width: f32, height: f32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
     renderer: State<'_, RendererState>,
+    app_state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
     let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
@@ -874,13 +1279,17 @@ pub fn renderer_click(
     let ndc_x = (x / width) * 2.0 - 1.0;
     let ndc_y = 1.0 - (y / height) * 2.0;
 
-    let (origin, dir) = s.camera.get_ray(ndc_x, ndc_y);
+    let (origin, dir) = s.camera.GetRay(ndc_x, ndc_y);
 
     let get_f32 = |obj: &serde_json::Value, k: &str, field: &str, d: f32| -> f32 {
-        obj.get(k).and_then(|o| o.get(field)).and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(d)
+        obj.get(k)
+            .and_then(|o| o.get(field))
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
+            .unwrap_or(d)
     };
 
-    let mut closest_t = f32::MAX;
+    let mut ClosestT = f32::MAX;
     let mut selected_id = None;
 
     for cmd in &s.commands {
@@ -899,9 +1308,9 @@ pub fn renderer_click(
             let min = center - extents;
             let max = center + extents;
 
-            if let Some(t) = ray_aabb_intersect(origin, dir, min, max) {
-                if t < closest_t {
-                    closest_t = t;
+            if let Some(t) = RayAabbIntersect(origin, dir, min, max) {
+                if t < ClosestT {
+                    ClosestT = t;
                     if let Some(id) = cmd.get("Id").and_then(|v| v.as_str()) {
                         selected_id = Some(id.to_string());
                     }
@@ -912,6 +1321,10 @@ pub fn renderer_click(
 
     s.selected = selected_id.clone();
     s.dirty = true;
+    *app_state
+        .selected_part_id
+        .lock()
+        .map_err(|e| e.to_string())? = selected_id.clone();
 
     Ok(selected_id)
 }
@@ -924,8 +1337,9 @@ pub fn renderer_set_on_top(
 ) -> Result<(), String> {
     let hwnd = renderer.lock().map_err(|e| e.to_string())?.hwnd;
     app.run_on_main_thread(move || {
-        nyx_window::set_z_order(hwnd, on_top);
-    }).map_err(|e| e.to_string())
+        nyx_window::SetZOrder(hwnd, on_top);
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -933,15 +1347,22 @@ pub fn renderer_load_scene(
     commands: Vec<serde_json::Value>,
     profile: String,
     renderer: State<'_, RendererState>,
+    app_state: State<'_, AppState>,
 ) -> Result<(), String> {
     let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
     let mut physics = std::mem::take(&mut s.physics);
     physics.Reset(&commands, &profile);
-    s.commands = commands;
-    s.profile  = profile;
-    s.physics  = physics;
-    s.dirty    = true;
+    s.commands = commands.clone();
+    s.profile = profile.clone();
+    s.physics = physics;
+    s.dirty = true;
+    *app_state.scene_commands.lock().map_err(|e| e.to_string())? = commands;
+    *app_state.scene_profile.lock().map_err(|e| e.to_string())? = Some(profile);
+    *app_state
+        .selected_part_id
+        .lock()
+        .map_err(|e| e.to_string())? = None;
     Ok(())
 }
 
@@ -950,6 +1371,7 @@ pub fn renderer_load_live_scene(
     commands: Vec<serde_json::Value>,
     profile: String,
     renderer: State<'_, RendererState>,
+    app_state: State<'_, AppState>,
 ) -> Result<(), String> {
     let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
@@ -958,17 +1380,22 @@ pub fn renderer_load_live_scene(
     }
     let mut physics = std::mem::take(&mut s.physics);
     physics.Reconcile(&commands, &profile);
-    s.commands = commands;
-    s.profile  = profile;
-    s.physics  = physics;
+    s.commands = commands.clone();
+    s.profile = profile.clone();
+    s.physics = physics;
     s.skip_camera_meta = true;
-    s.dirty    = true;
+    s.dirty = true;
+    *app_state.scene_commands.lock().map_err(|e| e.to_string())? = commands;
+    *app_state.scene_profile.lock().map_err(|e| e.to_string())? = Some(profile);
     Ok(())
 }
 
 #[tauri::command]
 pub fn renderer_set_bounds(
-    x: i32, y: i32, width: u32, height: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
     app: AppHandle,
     renderer: State<'_, RendererState>,
 ) -> Result<(), String> {
@@ -979,8 +1406,9 @@ pub fn renderer_set_bounds(
         r.hwnd
     };
     app.run_on_main_thread(move || {
-        nyx_window::set_window_bounds(hwnd, x, y, width, height);
-    }).map_err(|e| e.to_string())
+        nyx_window::SetWindowBounds(hwnd, x, y, width, height);
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -988,6 +1416,7 @@ pub fn renderer_set_visible(
     visible: bool,
     app: AppHandle,
     renderer: State<'_, RendererState>,
+    app_state: State<'_, AppState>,
 ) -> Result<(), String> {
     let hwnd = {
         let r = renderer.lock().map_err(|e| e.to_string())?;
@@ -995,25 +1424,31 @@ pub fn renderer_set_visible(
         s.visible = visible;
         r.hwnd
     };
+    *app_state
+        .viewport_visible
+        .lock()
+        .map_err(|e| e.to_string())? = visible;
     app.run_on_main_thread(move || {
-        nyx_window::show_window(hwnd, visible);
-    }).map_err(|e| e.to_string())
+        nyx_window::ShowWindow(hwnd, visible);
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn renderer_detach(
-    app: AppHandle,
-    renderer: State<'_, RendererState>,
-) -> Result<(), String> {
+pub fn renderer_detach(app: AppHandle, renderer: State<'_, RendererState>) -> Result<(), String> {
     let hwnd = renderer.lock().map_err(|e| e.to_string())?.hwnd;
     app.run_on_main_thread(move || {
-        nyx_window::detach_window(hwnd);
-    }).map_err(|e| e.to_string())
+        nyx_window::DetachWindow(hwnd);
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn renderer_attach(
-    x: i32, y: i32, width: u32, height: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
     app: AppHandle,
     renderer: State<'_, RendererState>,
 ) -> Result<(), String> {
@@ -1021,7 +1456,8 @@ pub fn renderer_attach(
     let hwnd = renderer.lock().map_err(|e| e.to_string())?.hwnd;
     let parent_hwnd = {
         use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
-        match app.get_window("main")
+        match app
+            .get_window("main")
             .ok_or("main window not found")?
             .raw_window_handle()
         {
@@ -1030,13 +1466,14 @@ pub fn renderer_attach(
         }
     };
     app.run_on_main_thread(move || {
-        nyx_window::attach_window(hwnd, parent_hwnd, x, y, width, height);
-    }).map_err(|e| e.to_string())
+        nyx_window::AttachWindow(hwnd, parent_hwnd, x, y, width, height);
+    })
+    .map_err(|e| e.to_string())
 }
 
 // ── Undo helper ───────────────────────────────────────────────────────────────
 
-fn push_undo(state: &crate::renderer::SceneState, undo: &mut crate::renderer::UndoHistory) {
+fn PushUndo(state: &crate::renderer::SceneState, undo: &mut crate::renderer::UndoHistory) {
     undo.undo_stack.push(state.commands.clone());
     if undo.undo_stack.len() > 50 {
         undo.undo_stack.remove(0);
@@ -1048,14 +1485,16 @@ fn push_undo(state: &crate::renderer::SceneState, undo: &mut crate::renderer::Un
 
 #[tauri::command]
 pub fn renderer_get_part(
-    id:       String,
+    id: String,
     renderer: State<'_, RendererState>,
 ) -> Result<Option<serde_json::Value>, String> {
     let r = renderer.lock().map_err(|e| e.to_string())?;
     let s = r.state.lock().map_err(|e| e.to_string())?;
     for cmd in &s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
-        if cmd.get("Id").and_then(|v| v.as_str())  == Some(id.as_str()) {
+        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+            continue;
+        }
+        if cmd.get("Id").and_then(|v| v.as_str()) == Some(id.as_str()) {
             return Ok(Some(cmd.clone()));
         }
     }
@@ -1064,31 +1503,47 @@ pub fn renderer_get_part(
 
 #[tauri::command]
 pub fn renderer_set_part_properties(
-    id:       String,
+    id: String,
     position: Option<serde_json::Value>,
-    size:     Option<serde_json::Value>,
-    color:    Option<serde_json::Value>,
+    size: Option<serde_json::Value>,
+    color: Option<serde_json::Value>,
     rotation: Option<serde_json::Value>,
     renderer: State<'_, RendererState>,
 ) -> Result<(), String> {
-    let r   = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
     {
         let mut u = r.undo.lock().map_err(|e| e.to_string())?;
-        push_undo(&s, &mut u);
+        PushUndo(&s, &mut u);
     }
     for cmd in &mut s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
-        if cmd.get("Id").and_then(|v| v.as_str())  != Some(id.as_str()) { continue; }
-        if let Some(p) = position { cmd["Position"] = p; }
-        if let Some(sz) = size    { cmd["Size"]     = sz; }
-        if let Some(c) = color    { cmd["Color"]    = c; }
+        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+            continue;
+        }
+        if cmd.get("Id").and_then(|v| v.as_str()) != Some(id.as_str()) {
+            continue;
+        }
+        if let Some(p) = position {
+            cmd["Position"] = p;
+        }
+        if let Some(sz) = size {
+            cmd["Size"] = sz;
+        }
+        if let Some(c) = color {
+            cmd["Color"] = c;
+        }
         if let Some(rot) = rotation {
             let cur_cf = cmd.get("CFrame").cloned().unwrap_or(serde_json::json!({}));
             let mut new_cf = cur_cf;
-            if let Some(rx) = rot.get("RX") { new_cf["RX"] = rx.clone(); }
-            if let Some(ry) = rot.get("RY") { new_cf["RY"] = ry.clone(); }
-            if let Some(rz) = rot.get("RZ") { new_cf["RZ"] = rz.clone(); }
+            if let Some(rx) = rot.get("RX") {
+                new_cf["RX"] = rx.clone();
+            }
+            if let Some(ry) = rot.get("RY") {
+                new_cf["RY"] = ry.clone();
+            }
+            if let Some(rz) = rot.get("RZ") {
+                new_cf["RZ"] = rz.clone();
+            }
             // Keep translation in CFrame synced to Position
             if let Some(pos) = cmd.get("Position") {
                 new_cf["X"] = pos.get("X").cloned().unwrap_or(serde_json::json!(0.0));
@@ -1111,13 +1566,15 @@ pub fn renderer_set_part_properties(
 
 #[tauri::command]
 pub fn renderer_set_gizmo_mode(
-    mode:     String,
+    mode: String,
     renderer: State<'_, RendererState>,
+    app_state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let r   = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
-    s.gizmo_mode = mode;
+    s.gizmo_mode = mode.clone();
     s.dirty = true;
+    *app_state.gizmo_mode.lock().map_err(|e| e.to_string())? = mode;
     Ok(())
 }
 
@@ -1125,20 +1582,26 @@ pub fn renderer_set_gizmo_mode(
 
 #[tauri::command]
 pub fn renderer_rotate_drag(
-    axis:   String,
-    prev_x: f32, prev_y: f32,
-    curr_x: f32, curr_y: f32,
-    width:  f32, height: f32,
+    axis: String,
+    prev_x: f32,
+    prev_y: f32,
+    curr_x: f32,
+    curr_y: f32,
+    width: f32,
+    height: f32,
     renderer: State<'_, RendererState>,
 ) -> Result<Option<[f32; 3]>, String> {
-    let r   = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
 
-    let sel = match s.selected.clone() { Some(id) => id, None => return Ok(None) };
+    let sel = match s.selected.clone() {
+        Some(id) => id,
+        None => return Ok(None),
+    };
 
     if !s.drag_undo_pushed {
         let mut u = r.undo.lock().map_err(|e| e.to_string())?;
-        push_undo(&s, &mut u);
+        PushUndo(&s, &mut u);
         s.drag_undo_pushed = true;
     }
 
@@ -1146,45 +1609,70 @@ pub fn renderer_rotate_drag(
         "X" => glam::Vec3::X,
         "Y" => glam::Vec3::Y,
         "Z" => glam::Vec3::Z,
-        _   => return Ok(None),
+        _ => return Ok(None),
     };
 
-    let part_pos = {
+    let PartPos = {
         let mut found = None;
         for cmd in &s.commands {
-            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
-            if cmd.get("Id").and_then(|v| v.as_str())  != Some(sel.as_str()) { continue; }
+            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+                continue;
+            }
+            if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
+                continue;
+            }
             let f = |k: &str, ff: &str| -> f32 {
-                cmd.get(k).and_then(|o| o.get(ff)).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+                cmd.get(k)
+                    .and_then(|o| o.get(ff))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as f32
             };
-            found = Some(glam::Vec3::new(f("Position","X"), f("Position","Y"), f("Position","Z")));
+            found = Some(glam::Vec3::new(
+                f("Position", "X"),
+                f("Position", "Y"),
+                f("Position", "Z"),
+            ));
             break;
         }
-        match found { Some(p) => p, None => return Ok(None) }
+        match found {
+            Some(p) => p,
+            None => return Ok(None),
+        }
     };
 
-    let to_ndc = |sx: f32, sy: f32| -> (f32, f32) {
-        ((sx / width) * 2.0 - 1.0, 1.0 - (sy / height) * 2.0)
-    };
+    let to_ndc =
+        |sx: f32, sy: f32| -> (f32, f32) { ((sx / width) * 2.0 - 1.0, 1.0 - (sy / height) * 2.0) };
     let (pnx, pny) = to_ndc(prev_x, prev_y);
     let (cnx, cny) = to_ndc(curr_x, curr_y);
-    let (po, pd) = s.camera.get_ray(pnx, pny);
-    let (co, cd) = s.camera.get_ray(cnx, cny);
+    let (po, pd) = s.camera.GetRay(pnx, pny);
+    let (co, cd) = s.camera.GetRay(cnx, cny);
 
     let plane_intersect = |ray_o: glam::Vec3, ray_d: glam::Vec3| -> Option<glam::Vec3> {
         let denom = plane_normal.dot(ray_d);
-        if denom.abs() < 1e-6 { return None; }
-        let t = plane_normal.dot(part_pos - ray_o) / denom;
-        if t < 0.0 { return None; }
+        if denom.abs() < 1e-6 {
+            return None;
+        }
+        let t = plane_normal.dot(PartPos - ray_o) / denom;
+        if t < 0.0 {
+            return None;
+        }
         Some(ray_o + ray_d * t)
     };
 
-    let prev_pt = match plane_intersect(po, pd) { Some(p) => p, None => return Ok(None) };
-    let curr_pt = match plane_intersect(co, cd) { Some(p) => p, None => return Ok(None) };
+    let prev_pt = match plane_intersect(po, pd) {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let curr_pt = match plane_intersect(co, cd) {
+        Some(p) => p,
+        None => return Ok(None),
+    };
 
-    let v_prev = prev_pt - part_pos;
-    let v_curr = curr_pt - part_pos;
-    if v_prev.length() < 1e-6 || v_curr.length() < 1e-6 { return Ok(None); }
+    let v_prev = prev_pt - PartPos;
+    let v_curr = curr_pt - PartPos;
+    if v_prev.length() < 1e-6 || v_curr.length() < 1e-6 {
+        return Ok(None);
+    }
     let v_prev = v_prev.normalize();
     let v_curr = v_curr.normalize();
 
@@ -1192,13 +1680,24 @@ pub fn renderer_rotate_drag(
     let sin_a = v_prev.cross(v_curr).dot(plane_normal);
     let angle = sin_a.atan2(cos_a);
 
-    let rot_key = match axis.as_str() { "X" => "RX", "Y" => "RY", _ => "RZ" };
+    let rot_key = match axis.as_str() {
+        "X" => "RX",
+        "Y" => "RY",
+        _ => "RZ",
+    };
     let mut result = None;
     for cmd in &mut s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
-        if cmd.get("Id").and_then(|v| v.as_str())  != Some(sel.as_str()) { continue; }
-        let cur: f32 = cmd.get("CFrame").and_then(|cf| cf.get(rot_key))
-            .and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+            continue;
+        }
+        if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
+            continue;
+        }
+        let cur: f32 = cmd
+            .get("CFrame")
+            .and_then(|cf| cf.get(rot_key))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as f32;
         let new_r = cur + angle;
         let cf = cmd.get("CFrame").cloned().unwrap_or_else(|| {
             let pos = cmd.get("Position").cloned().unwrap_or(serde_json::json!({}));
@@ -1206,9 +1705,21 @@ pub fn renderer_rotate_drag(
         });
         let mut new_cf = cf;
         new_cf[rot_key] = serde_json::json!(new_r);
-        let rx = if rot_key == "RX" { new_r } else { new_cf.get("RX").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32 };
-        let ry = if rot_key == "RY" { new_r } else { new_cf.get("RY").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32 };
-        let rz = if rot_key == "RZ" { new_r } else { new_cf.get("RZ").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32 };
+        let rx = if rot_key == "RX" {
+            new_r
+        } else {
+            new_cf.get("RX").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+        };
+        let ry = if rot_key == "RY" {
+            new_r
+        } else {
+            new_cf.get("RY").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+        };
+        let rz = if rot_key == "RZ" {
+            new_r
+        } else {
+            new_cf.get("RZ").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+        };
         cmd["CFrame"] = new_cf;
         result = Some([rx, ry, rz]);
         break;
@@ -1225,20 +1736,26 @@ pub fn renderer_rotate_drag(
 
 #[tauri::command]
 pub fn renderer_scale_drag(
-    axis:   String,
-    prev_x: f32, prev_y: f32,
-    curr_x: f32, curr_y: f32,
-    width:  f32, height: f32,
+    axis: String,
+    prev_x: f32,
+    prev_y: f32,
+    curr_x: f32,
+    curr_y: f32,
+    width: f32,
+    height: f32,
     renderer: State<'_, RendererState>,
 ) -> Result<Option<[f32; 3]>, String> {
-    let r   = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
 
-    let sel = match s.selected.clone() { Some(id) => id, None => return Ok(None) };
+    let sel = match s.selected.clone() {
+        Some(id) => id,
+        None => return Ok(None),
+    };
 
     if !s.drag_undo_pushed {
         let mut u = r.undo.lock().map_err(|e| e.to_string())?;
-        push_undo(&s, &mut u);
+        PushUndo(&s, &mut u);
         s.drag_undo_pushed = true;
     }
 
@@ -1246,42 +1763,62 @@ pub fn renderer_scale_drag(
         "X" => glam::Vec3::X,
         "Y" => glam::Vec3::Y,
         "Z" => glam::Vec3::Z,
-        _   => return Ok(None),
+        _ => return Ok(None),
     };
 
-    let part_pos = {
+    let PartPos = {
         let mut found = None;
         for cmd in &s.commands {
-            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
-            if cmd.get("Id").and_then(|v| v.as_str())  != Some(sel.as_str()) { continue; }
+            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+                continue;
+            }
+            if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
+                continue;
+            }
             let f = |k: &str, ff: &str| -> f32 {
-                cmd.get(k).and_then(|o| o.get(ff)).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+                cmd.get(k)
+                    .and_then(|o| o.get(ff))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as f32
             };
-            found = Some(glam::Vec3::new(f("Position","X"), f("Position","Y"), f("Position","Z")));
+            found = Some(glam::Vec3::new(
+                f("Position", "X"),
+                f("Position", "Y"),
+                f("Position", "Z"),
+            ));
             break;
         }
-        match found { Some(p) => p, None => return Ok(None) }
+        match found {
+            Some(p) => p,
+            None => return Ok(None),
+        }
     };
 
-    let to_ndc = |sx: f32, sy: f32| -> (f32, f32) {
-        ((sx / width) * 2.0 - 1.0, 1.0 - (sy / height) * 2.0)
-    };
+    let to_ndc =
+        |sx: f32, sy: f32| -> (f32, f32) { ((sx / width) * 2.0 - 1.0, 1.0 - (sy / height) * 2.0) };
     let (pnx, pny) = to_ndc(prev_x, prev_y);
     let (cnx, cny) = to_ndc(curr_x, curr_y);
-    let (po, pd) = s.camera.get_ray(pnx, pny);
-    let (co, cd) = s.camera.get_ray(cnx, cny);
+    let (po, pd) = s.camera.GetRay(pnx, pny);
+    let (co, cd) = s.camera.GetRay(cnx, cny);
 
-    let t_prev = closest_t_on_line(po, pd, part_pos, axis_dir);
-    let t_curr = closest_t_on_line(co, cd, part_pos, axis_dir);
-    let delta  = t_curr - t_prev;
+    let t_prev = ClosestTOnLine(po, pd, PartPos, axis_dir);
+    let t_curr = ClosestTOnLine(co, cd, PartPos, axis_dir);
+    let delta = t_curr - t_prev;
 
     let size_key = axis.as_str();
     let mut result = None;
     for cmd in &mut s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
-        if cmd.get("Id").and_then(|v| v.as_str())  != Some(sel.as_str()) { continue; }
+        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+            continue;
+        }
+        if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
+            continue;
+        }
         if let Some(size_obj) = cmd.get_mut("Size") {
-            let cur: f32 = size_obj.get(size_key).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+            let cur: f32 = size_obj
+                .get(size_key)
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0) as f32;
             let new_s = (cur + delta * 2.0).max(0.05);
             size_obj[size_key] = serde_json::json!(new_s);
             let sx = size_obj.get("X").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
@@ -1303,7 +1840,7 @@ pub fn renderer_scale_drag(
 
 #[tauri::command]
 pub fn renderer_undo(renderer: State<'_, RendererState>) -> Result<(), String> {
-    let r   = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
     let mut u = r.undo.lock().map_err(|e| e.to_string())?;
     if let Some(prev) = u.undo_stack.pop() {
@@ -1314,14 +1851,14 @@ pub fn renderer_undo(renderer: State<'_, RendererState>) -> Result<(), String> {
         let profile = s.profile.clone();
         physics.Reconcile(&s.commands, &profile);
         s.physics = physics;
-        s.dirty    = true;
+        s.dirty = true;
     }
     Ok(())
 }
 
 #[tauri::command]
 pub fn renderer_redo(renderer: State<'_, RendererState>) -> Result<(), String> {
-    let r   = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
     let mut u = r.undo.lock().map_err(|e| e.to_string())?;
     if let Some(next) = u.redo_stack.pop() {
@@ -1332,7 +1869,7 @@ pub fn renderer_redo(renderer: State<'_, RendererState>) -> Result<(), String> {
         let profile = s.profile.clone();
         physics.Reconcile(&s.commands, &profile);
         s.physics = physics;
-        s.dirty    = true;
+        s.dirty = true;
     }
     Ok(())
 }
@@ -1340,19 +1877,16 @@ pub fn renderer_redo(renderer: State<'_, RendererState>) -> Result<(), String> {
 // ── Delete part ───────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn renderer_delete_part(
-    id:       String,
-    renderer: State<'_, RendererState>,
-) -> Result<(), String> {
-    let r   = renderer.lock().map_err(|e| e.to_string())?;
+pub fn renderer_delete_part(id: String, renderer: State<'_, RendererState>) -> Result<(), String> {
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
     {
         let mut u = r.undo.lock().map_err(|e| e.to_string())?;
-        push_undo(&s, &mut u);
+        PushUndo(&s, &mut u);
     }
     s.commands.retain(|cmd| {
-        !(cmd.get("Cmd").and_then(|v| v.as_str()) == Some("AddPart") &&
-          cmd.get("Id").and_then(|v| v.as_str())  == Some(id.as_str()))
+        !(cmd.get("Cmd").and_then(|v| v.as_str()) == Some("AddPart")
+            && cmd.get("Id").and_then(|v| v.as_str()) == Some(id.as_str()))
     });
     if s.selected.as_deref() == Some(id.as_str()) {
         s.selected = None;
@@ -1369,32 +1903,39 @@ pub fn renderer_delete_part(
 
 #[tauri::command]
 pub fn renderer_frame_selected(renderer: State<'_, RendererState>) -> Result<(), String> {
-    let r   = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
 
     let target_pos: Option<glam::Vec3>;
     let target_size: f32;
 
     if let Some(sel_id) = s.selected.clone() {
-        let mut found_pos  = None;
+        let mut found_pos = None;
         let mut found_size = 4.0_f32;
         for cmd in &s.commands {
-            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
-            if cmd.get("Id").and_then(|v| v.as_str())  != Some(sel_id.as_str()) { continue; }
+            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+                continue;
+            }
+            if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel_id.as_str()) {
+                continue;
+            }
             let gf = |k: &str, f: &str, d: f64| -> f32 {
-                cmd.get(k).and_then(|o| o.get(f)).and_then(|v| v.as_f64()).unwrap_or(d) as f32
+                cmd.get(k)
+                    .and_then(|o| o.get(f))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(d) as f32
             };
-            let px = gf("Position","X",0.0);
-            let py = gf("Position","Y",0.0);
-            let pz = gf("Position","Z",0.0);
-            let sx = gf("Size","X",2.0);
-            let sy = gf("Size","Y",2.0);
-            let sz = gf("Size","Z",2.0);
-            found_pos  = Some(glam::Vec3::new(px, py, pz));
+            let px = gf("Position", "X", 0.0);
+            let py = gf("Position", "Y", 0.0);
+            let pz = gf("Position", "Z", 0.0);
+            let sx = gf("Size", "X", 2.0);
+            let sy = gf("Size", "Y", 2.0);
+            let sz = gf("Size", "Z", 2.0);
+            found_pos = Some(glam::Vec3::new(px, py, pz));
             found_size = sx.max(sy).max(sz);
             break;
         }
-        target_pos  = found_pos;
+        target_pos = found_pos;
         target_size = found_size;
     } else {
         // Frame all: compute AABB center of all parts
@@ -1402,19 +1943,32 @@ pub fn renderer_frame_selected(renderer: State<'_, RendererState>) -> Result<(),
         let mut max = glam::Vec3::splat(f32::MIN);
         let mut any = false;
         for cmd in &s.commands {
-            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") { continue; }
+            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+                continue;
+            }
             let gf = |k: &str, f: &str, d: f64| -> f32 {
-                cmd.get(k).and_then(|o| o.get(f)).and_then(|v| v.as_f64()).unwrap_or(d) as f32
+                cmd.get(k)
+                    .and_then(|o| o.get(f))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(d) as f32
             };
-            let p = glam::Vec3::new(gf("Position","X",0.0), gf("Position","Y",0.0), gf("Position","Z",0.0));
-            let h = glam::Vec3::new(gf("Size","X",2.0), gf("Size","Y",2.0), gf("Size","Z",2.0)) * 0.5;
+            let p = glam::Vec3::new(
+                gf("Position", "X", 0.0),
+                gf("Position", "Y", 0.0),
+                gf("Position", "Z", 0.0),
+            );
+            let h = glam::Vec3::new(
+                gf("Size", "X", 2.0),
+                gf("Size", "Y", 2.0),
+                gf("Size", "Z", 2.0),
+            ) * 0.5;
             min = min.min(p - h);
             max = max.max(p + h);
             any = true;
         }
         if any {
             let center = (min + max) * 0.5;
-            target_pos  = Some(center);
+            target_pos = Some(center);
             target_size = (max - min).length();
         } else {
             return Ok(());
@@ -1423,8 +1977,8 @@ pub fn renderer_frame_selected(renderer: State<'_, RendererState>) -> Result<(),
 
     if let Some(pos) = target_pos {
         let dist = target_size * 2.5 + 5.0;
-        let eye  = pos + glam::Vec3::new(dist * 0.6, dist * 0.5, dist * 0.6);
-        s.camera.set_from_eye_target(eye.to_array(), pos.to_array());
+        let eye = pos + glam::Vec3::new(dist * 0.6, dist * 0.5, dist * 0.6);
+        s.camera.SetFromEyeTarget(eye.to_array(), pos.to_array());
         s.dirty = true;
     }
     Ok(())
@@ -1434,7 +1988,7 @@ pub fn renderer_frame_selected(renderer: State<'_, RendererState>) -> Result<(),
 
 #[tauri::command]
 pub fn renderer_end_drag(renderer: State<'_, RendererState>) -> Result<(), String> {
-    let r   = renderer.lock().map_err(|e| e.to_string())?;
+    let r = renderer.lock().map_err(|e| e.to_string())?;
     let mut s = r.state.lock().map_err(|e| e.to_string())?;
     s.drag_undo_pushed = false;
     Ok(())
@@ -1444,18 +1998,18 @@ pub fn renderer_end_drag(renderer: State<'_, RendererState>) -> Result<(), Strin
 
 use zeroize::Zeroizing;
 
-const KEYRING_SERVICE:   &str = "nyx-ide";
+const KEYRING_SERVICE: &str = "nyx-ide";
 const KEYRING_ANTHROPIC: &str = "anthropic";
-const KEYRING_DEEPSEEK:  &str = "deepseek";
+const KEYRING_DEEPSEEK: &str = "deepseek";
 
-fn kr_exists(account: &str) -> bool {
+fn KrExists(account: &str) -> bool {
     keyring::Entry::new(KEYRING_SERVICE, account)
         .ok()
         .and_then(|e| e.get_password().ok())
         .is_some()
 }
 
-fn kr_get(account: &str) -> Option<Zeroizing<String>> {
+fn KrGet(account: &str) -> Option<Zeroizing<String>> {
     keyring::Entry::new(KEYRING_SERVICE, account)
         .ok()
         .and_then(|e| e.get_password().ok())
@@ -1464,37 +2018,45 @@ fn kr_get(account: &str) -> Option<Zeroizing<String>> {
 
 #[derive(serde::Deserialize)]
 pub struct AiChatMessage {
-    pub role:    String,
+    pub role: String,
     pub content: String,
 }
 
 #[derive(Serialize)]
 pub struct AiConfigStatus {
     pub anthropic_key_set: bool,
-    pub deepseek_key_set:  bool,
+    pub deepseek_key_set: bool,
 }
 
 #[derive(Serialize, serde::Deserialize, Clone, Default)]
 pub struct AppSettings {
-    #[serde(default = "default_provider")]
-    pub default_provider: String,
+    #[serde(default = "DefaultProvider")]
+    pub DefaultProvider: String,
     #[serde(default)]
     pub obsidian_vault_path: Option<String>,
-    #[serde(default = "default_ai_mode")]
+    #[serde(default = "DefaultAiMode")]
     pub ai_mode: String,
 }
 
-fn default_provider() -> String { "anthropic".to_string() }
-fn default_ai_mode()   -> String { "supervised".to_string() }
+fn DefaultProvider() -> String {
+    "anthropic".to_string()
+}
+fn DefaultAiMode() -> String {
+    "supervised".to_string()
+}
 
-fn settings_path() -> Option<std::path::PathBuf> {
+fn SettingsPath() -> Option<std::path::PathBuf> {
     let appdata = std::env::var("APPDATA").ok()?;
-    Some(std::path::PathBuf::from(appdata).join("Nyx").join("settings.json"))
+    Some(
+        std::path::PathBuf::from(appdata)
+            .join("Nyx")
+            .join("settings.json"),
+    )
 }
 
 #[tauri::command]
 pub fn get_app_settings() -> AppSettings {
-    settings_path()
+    SettingsPath()
         .and_then(|p| fs::read_to_string(&p).ok())
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
@@ -1502,7 +2064,7 @@ pub fn get_app_settings() -> AppSettings {
 
 #[tauri::command]
 pub fn save_app_settings(settings: AppSettings) -> Result<(), String> {
-    let path = settings_path().ok_or("Cannot determine AppData path")?;
+    let path = SettingsPath().ok_or("Cannot determine AppData path")?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -1513,18 +2075,27 @@ pub fn save_app_settings(settings: AppSettings) -> Result<(), String> {
 #[tauri::command]
 pub fn ai_get_config() -> AiConfigStatus {
     AiConfigStatus {
-        anthropic_key_set: kr_exists(KEYRING_ANTHROPIC),
-        deepseek_key_set:  kr_exists(KEYRING_DEEPSEEK),
+        anthropic_key_set: KrExists(KEYRING_ANTHROPIC),
+        deepseek_key_set: KrExists(KEYRING_DEEPSEEK),
     }
 }
 
 #[tauri::command]
 pub fn ai_launch_keyman() -> Result<(), String> {
-    let exe_dir = std::env::current_exe()
-        .map_err(|e| e.to_string())?;
-    let exe_dir = exe_dir.parent()
-        .ok_or("Cannot determine exe directory")?;
-    let keyman = exe_dir.join("nyx-keyman.exe");
+    let exe_dir = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe_dir.parent().ok_or("Cannot determine exe directory")?;
+    let dev_keyman = exe_dir.join("nyx-keyman.exe");
+    let resource_keyman = exe_dir
+        .join("resources")
+        .join("extra-bin")
+        .join("nyx-keyman.exe");
+    let keyman = if dev_keyman.exists() {
+        dev_keyman
+    } else if resource_keyman.exists() {
+        resource_keyman
+    } else {
+        dev_keyman
+    };
 
     std::process::Command::new(&keyman)
         .spawn()
@@ -1532,22 +2103,67 @@ pub fn ai_launch_keyman() -> Result<(), String> {
     Ok(())
 }
 
+fn PowershellQuote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[tauri::command]
+pub fn ai_launch_nyx_cli(workspace: Option<String>) -> Result<(), String> {
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe_path.parent().ok_or("Cannot determine exe directory")?;
+
+    let installed_cli = exe_dir.join("NyxCli").join("NyxCli.exe");
+    let dev_cli = exe_dir.join("NyxCli.exe");
+    let resource_cli = exe_dir
+        .join("resources")
+        .join("extra-bin")
+        .join("NyxCli.exe");
+    let cli = if installed_cli.exists() {
+        installed_cli
+    } else if dev_cli.exists() {
+        dev_cli
+    } else if resource_cli.exists() {
+        resource_cli
+    } else {
+        installed_cli
+    };
+
+    let mut command = format!("& {}", PowershellQuote(&cli.to_string_lossy()));
+    if let Some(w) = workspace.as_deref().filter(|w| !w.trim().is_empty()) {
+        command.push_str(" --workspace ");
+        command.push_str(&PowershellQuote(w));
+    }
+
+    let spawn = std::process::Command::new("wt.exe")
+        .args(["powershell.exe", "-NoExit", "-Command", &command])
+        .spawn()
+        .or_else(|_| {
+            std::process::Command::new("powershell.exe")
+                .args(["-NoExit", "-Command", &command])
+                .spawn()
+        });
+
+    spawn
+        .map(|_| ())
+        .map_err(|e| format!("Could not launch NyxCli ({cli:?}): {e}"))
+}
+
 #[tauri::command]
 pub async fn ai_start_agent(
-    provider:  String,
-    messages:  Vec<AiChatMessage>,
+    provider: String,
+    messages: Vec<AiChatMessage>,
     workspace: Option<String>,
-    mode:      String,
-    window:    tauri::Window,
-    approval:  State<'_, Arc<Mutex<agent::ApprovalState>>>,
+    mode: String,
+    window: tauri::Window,
+    approval: State<'_, Arc<Mutex<agent::ApprovalState>>>,
 ) -> Result<(), String> {
     let (api_key, model, is_anthropic) = match provider.as_str() {
         "anthropic" => {
-            let k = kr_get(KEYRING_ANTHROPIC).ok_or("Anthropic API key not configured")?;
+            let k = KrGet(KEYRING_ANTHROPIC).ok_or("Anthropic API key not configured")?;
             (k, "claude-sonnet-4-6".to_string(), true)
         }
         "deepseek" => {
-            let k = kr_get(KEYRING_DEEPSEEK).ok_or("DeepSeek API key not configured")?;
+            let k = KrGet(KEYRING_DEEPSEEK).ok_or("DeepSeek API key not configured")?;
             (k, "deepseek-chat".to_string(), false)
         }
         _ => return Err(format!("Unknown provider: {provider}")),
@@ -1555,31 +2171,42 @@ pub async fn ai_start_agent(
 
     let global_memory = {
         let appdata = std::env::var("APPDATA").unwrap_or_default();
-        std::path::PathBuf::from(appdata).join("Nyx").join("NyxMemory")
+        std::path::PathBuf::from(appdata)
+            .join("Nyx")
+            .join("NyxMemory")
     };
-    let project_memory = workspace.as_ref().map(|w| {
-        std::path::PathBuf::from(w).join(".nyx").join("memory")
-    });
+    let project_memory = workspace
+        .as_ref()
+        .map(|w| std::path::PathBuf::from(w).join(".nyx").join("memory"));
 
-    let settings       = get_app_settings();
-    let tool_settings  = agent::ToolSettings {
-        workspace_path:      workspace.clone(),
+    let settings = get_app_settings();
+    let tool_settings = agent::ToolSettings {
+        workspace_path: workspace.clone(),
         obsidian_vault_path: settings.obsidian_vault_path,
-        global_memory_path:  global_memory,
+        global_memory_path: global_memory,
         project_memory_path: project_memory,
     };
 
-    let api_messages: Vec<serde_json::Value> = messages.iter()
+    let api_messages: Vec<serde_json::Value> = messages
+        .iter()
         .map(|m| serde_json::json!({"role": m.role, "content": m.content}))
         .collect();
 
-    let system     = agent::build_system_prompt(workspace.as_deref());
-    let agent_mode = agent::AgentMode::from_str(&mode);
+    let agent_mode = agent::AgentMode::FromStr(&mode);
+    let system = agent::BuildSystemPrompt(workspace.as_deref(), &agent_mode);
 
-    let result = agent::run_agent(
-        api_messages, system, &api_key, &model, is_anthropic,
-        tool_settings, Arc::clone(&*approval), agent_mode, window.clone(),
-    ).await;
+    let result = agent::RunAgent(
+        api_messages,
+        system,
+        &api_key,
+        &model,
+        is_anthropic,
+        tool_settings,
+        Arc::clone(&*approval),
+        agent_mode,
+        window.clone(),
+    )
+    .await;
 
     if let Err(ref e) = result {
         let _ = window.emit("ai_error", e.clone());
@@ -1588,12 +2215,20 @@ pub async fn ai_start_agent(
 }
 
 #[tauri::command]
-pub fn ai_tool_respond(
-    approve:  bool,
-    approval: State<'_, Arc<Mutex<agent::ApprovalState>>>,
-) {
+pub fn ai_tool_respond(approve: bool, approval: State<'_, Arc<Mutex<agent::ApprovalState>>>) {
     let mut state = approval.lock().unwrap();
     if let Some(tx) = state.pending.take() {
         let _ = tx.send(approve);
+    }
+}
+
+#[tauri::command]
+pub fn ai_question_respond(
+    response: agent::QuestionResponse,
+    approval: State<'_, Arc<Mutex<agent::ApprovalState>>>,
+) {
+    let mut state = approval.lock().unwrap();
+    if let Some(tx) = state.pending_question.take() {
+        let _ = tx.send(response);
     }
 }

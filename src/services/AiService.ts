@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/tauri";
 
 export type AiProvider = "anthropic" | "deepseek";
+export type AiMode = "supervised" | "autonomous" | "agentic";
 
 export interface AiMessage {
     Role:    "user" | "assistant";
@@ -15,7 +16,30 @@ export interface AiConfigStatus {
 export interface AppSettings {
     DefaultProvider:    AiProvider;
     ObsidianVaultPath:  string | null;
-    AiMode:             "supervised" | "autonomous";
+    AiMode:             AiMode;
+}
+
+export interface AiQuestionOption {
+    Label: string;
+    Description?: string;
+}
+
+export interface AiQuestion {
+    Id: string;
+    Question: string;
+    Options: AiQuestionOption[];
+}
+
+export interface AiQuestionRequest {
+    Id: string;
+    Questions: AiQuestion[];
+}
+
+export interface AiQuestionAnswer {
+    Id: string;
+    Question: string;
+    Choice: string;
+    Message?: string | null;
 }
 
 export const AiService = {
@@ -27,13 +51,16 @@ export const AiService = {
 
     LaunchKeyman: () => invoke<void>("ai_launch_keyman"),
 
+    LaunchNyxCli: (Workspace: string | null) =>
+        invoke<void>("ai_launch_nyx_cli", { workspace: Workspace }),
+
     GetAppSettings: () =>
         invoke<{ default_provider: string; obsidian_vault_path: string | null; ai_mode: string }>(
             "get_app_settings"
         ).then(R => ({
             DefaultProvider:   R.default_provider as AiProvider,
             ObsidianVaultPath: R.obsidian_vault_path,
-            AiMode:            (R.ai_mode || "supervised") as "supervised" | "autonomous",
+            AiMode:            (R.ai_mode || "supervised") as AiMode,
         })),
 
     SaveAppSettings: (S: Partial<AppSettings>) =>
@@ -49,7 +76,7 @@ export const AiService = {
         Provider:  AiProvider,
         Messages:  AiMessage[],
         Workspace: string | null,
-        Mode:      "supervised" | "autonomous",
+        Mode:      AiMode,
     ) =>
         invoke<void>("ai_start_agent", {
             provider:  Provider,
@@ -60,4 +87,7 @@ export const AiService = {
 
     RespondToTool: (Approve: boolean) =>
         invoke<void>("ai_tool_respond", { approve: Approve }),
+
+    RespondToQuestion: (Answers: AiQuestionAnswer[]) =>
+        invoke<void>("ai_question_respond", { response: { Answers } }),
 };

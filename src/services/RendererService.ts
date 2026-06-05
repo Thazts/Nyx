@@ -82,6 +82,10 @@ export const RendererService = {
         });
     },
 
+    async CameraRightMouse(Config: { Down: boolean }): Promise<void> {
+        return invoke("renderer_camera_right_mouse", { down: Config.Down });
+    },
+
     async GizmoDrag(Config: {
         Axis: string;
         PrevX: number; PrevY: number;

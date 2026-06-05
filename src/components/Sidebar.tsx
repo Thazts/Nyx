@@ -68,6 +68,7 @@ interface SidebarProps {
     OnNewFolder?: (FolderName: string, TargetDir: string) => void;
     OnRename?: (OldPath: string, NewName: string) => void;
     OnDelete?: (Path: string) => void;
+    AiChangedFiles?: Set<string>;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -82,6 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     OnNewFolder,
     OnRename,
     OnDelete,
+    AiChangedFiles = new Set(),
 }) => {
     const [ClickedPath, SetClickedPath]             = useState<string | null>(null);
     const [CollapsingFolders, SetCollapsingFolders] = useState<Set<string>>(new Set());
@@ -111,7 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (PendingRename) {
             RenameValueRef.current = PendingRename.Name;
             setTimeout(() => {
-                CreateInputRef.current; // noop, keep react happy
+                CreateInputRef.current;
                 RenameInputRef.current?.focus();
                 RenameInputRef.current?.select();
             }, 30);
@@ -250,6 +252,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const ShowChildren  = Entry.IsDirectory && !IsCollapsed && Entry.Children;
         const IsRenaming    = PendingRename?.Path === Entry.Path;
         const IsCreateHere  = PendingCreate?.TargetDir === Entry.Path;
+        const IsAiChanged   = !Entry.IsDirectory && AiChangedFiles.has(Entry.Path.replace(/\\/g, "/").toLowerCase());
 
         const FolderSvg = (collapsed: boolean) => (
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
@@ -289,7 +292,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                 ) : (
                     <div
-                        className={`${styles.Item} ${IsActive ? styles.Active : ""} ${IsClicked ? styles.Clicked : ""}`}
+                        className={`${styles.Item} ${IsActive ? styles.Active : ""} ${IsClicked ? styles.Clicked : ""} ${IsAiChanged ? styles.AiChanged : ""}`}
                         style={{ paddingLeft: `${12 + Depth * 16}px` }}
                         onClick={() => Entry.IsDirectory ? HandleFolderClick(Entry.Path) : HandleClick(Entry.Path)}
                         onContextMenu={E => {
@@ -302,6 +305,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             {Entry.IsDirectory ? FolderSvg(IsCollapsed && !IsCollapsing) : FileSvg()}
                         </span>
                         <span className={styles.Name}>{Entry.Name}</span>
+                        {IsAiChanged && (
+                            <span className={styles.AiBadge} title="Edited by AI">
+                                AI
+                            </span>
+                        )}
                     </div>
                 )}
                 {(ShowChildren || IsCollapsing) && Entry.Children && (

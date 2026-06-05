@@ -1,32 +1,72 @@
+import { ClientState } from "./ClientState";
+
 const AppRegistryKey = {
+    AppReady:      false,
     WorkspacePath: null,    // string | null
+    RecentPaths:   [],      // string[]
     ActiveFile:    null,    // string | null
     AppStatus:     "idle",  // "idle" | "loading" | "error"
+    IsLoading:     false,
     IsRunning:     false,
 } as const;
 
 const EditorRegistryKey = {
-    TerminalOutput: [],  // string[]
-    RunOutput:      [],  // string[]
-    OpenTabs:       [],  // TabEntry[]
-    FileTree:       [],  // FileEntry[]
+    TerminalOutput:         [],    // string[]
+    RunOutput:              [],    // string[]
+    OpenTabs:               [],    // TabEntry[]
+    FileTree:               [],    // FileEntry[]
+    FileContent:            "",
+    DiskContent:            "",
+    ActiveTabModified:      false,
+    CollapsedFolders:       [],    // string[]
+    SelectedEntry:          null,  // FileEntry | null
+    SelectedMetadata:       null,  // FileMetadata | null
+    CursorLine:             1,
+    CursorCol:              1,
+    SavedFlash:             false,
+    ExternalContentVersion: 0,
+    GitBranch:              "-",
+    DisplayLanguage:        "-",
 } as const;
 
 const RendererRegistryKey = {
-    GizmoMode:      "move",  // "move" | "rotate" | "scale"
-    SelectedPartId: null,    // string | null
-    ViewportActive: false,   // boolean
+    GizmoMode:               "move",  // "move" | "rotate" | "scale"
+    SelectedPartId:          null,    // string | null
+    ViewportActive:          false,
+    ViewportPath:            null,    // string | null
+    ViewportProfile:         null,    // string | null
+    LastViewportInteraction: 0,
 } as const;
 
-const APP_KEYS      = ["WorkspacePath", "ActiveFile", "AppStatus", "IsRunning"] as const;
-const EDITOR_KEYS   = ["TerminalOutput", "RunOutput", "OpenTabs", "FileTree"] as const;
-const RENDERER_KEYS = ["GizmoMode", "SelectedPartId", "ViewportActive"] as const;
+const AiRegistryKey = {
+    AiProvider:        "anthropic",
+    AiMode:            "supervised", // "supervised" | "autonomous" | "agentic"
+    AiActivity:        null,   // AgentActivityEvent | null
+    AiStreaming:       false,
+    AiPendingApproval: null,   // ToolCall | null
+    AiLastChange:      null,   // AiChangeEvent | null
+    AiChangedFiles:    [],     // string[]
+} as const;
+
+const SettingsRegistryKey = {
+    AnthropicKeySet:   false,
+    DeepseekKeySet:    false,
+    ObsidianVaultPath: "",
+} as const;
+
+const APP_KEYS      = ["AppReady", "WorkspacePath", "RecentPaths", "ActiveFile", "AppStatus", "IsLoading", "IsRunning"] as const;
+const EDITOR_KEYS   = ["TerminalOutput", "RunOutput", "OpenTabs", "FileTree", "FileContent", "DiskContent", "ActiveTabModified", "CollapsedFolders", "SelectedEntry", "SelectedMetadata", "CursorLine", "CursorCol", "SavedFlash", "ExternalContentVersion", "GitBranch", "DisplayLanguage"] as const;
+const RENDERER_KEYS = ["GizmoMode", "SelectedPartId", "ViewportActive", "ViewportPath", "ViewportProfile", "LastViewportInteraction"] as const;
+const AI_KEYS       = ["AiProvider", "AiMode", "AiActivity", "AiStreaming", "AiPendingApproval", "AiLastChange", "AiChangedFiles"] as const;
+const SETTINGS_KEYS = ["AnthropicKeySet", "DeepseekKeySet", "ObsidianVaultPath"] as const;
 
 const _keyMap: Record<string, Record<string, unknown>> = {};
 
 for (const K of APP_KEYS)      _keyMap[K] = AppRegistryKey as unknown as Record<string, unknown>;
 for (const K of EDITOR_KEYS)   _keyMap[K] = EditorRegistryKey as unknown as Record<string, unknown>;
 for (const K of RENDERER_KEYS) _keyMap[K] = RendererRegistryKey as unknown as Record<string, unknown>;
+for (const K of AI_KEYS)       _keyMap[K] = AiRegistryKey as unknown as Record<string, unknown>;
+for (const K of SETTINGS_KEYS) _keyMap[K] = SettingsRegistryKey as unknown as Record<string, unknown>;
 
 const _store: Record<string, unknown> = {};
 const _listeners: Record<string, Set<(value: unknown) => void>> = {};
@@ -46,6 +86,7 @@ export const StateManager = {
             return;
         }
         _store[Key] = Value;
+        ClientState.Set(Key, Value);
         _listeners[Key]?.forEach(fn => fn(Value));
     },
 
@@ -62,6 +103,8 @@ export const StateManager = {
         const obj = this.get(Key);
         if (typeof obj === "object" && obj !== null) {
             (obj as Record<string, unknown>)[SubKey] = Value;
+            ClientState.Set(Key, obj);
+            _listeners[Key]?.forEach(fn => fn(obj));
         } else {
             console.warn(`StateManager.setIn: key "${Key}" is not an object`);
         }
@@ -77,5 +120,8 @@ export const StateManager = {
         for (const K of APP_KEYS)      _store[K] = (AppRegistryKey as Record<string, unknown>)[K];
         for (const K of EDITOR_KEYS)   _store[K] = (EditorRegistryKey as Record<string, unknown>)[K];
         for (const K of RENDERER_KEYS) _store[K] = (RendererRegistryKey as Record<string, unknown>)[K];
+        for (const K of AI_KEYS)       _store[K] = (AiRegistryKey as Record<string, unknown>)[K];
+        for (const K of SETTINGS_KEYS) _store[K] = (SettingsRegistryKey as Record<string, unknown>)[K];
+        ClientState.Init(_store);
     },
 };

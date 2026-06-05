@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { RendererService } from "../services/RendererService";
-import { StateManager } from "../state/StateManager";
+import { StateService } from "../services/StateService";
 import styles from "../styles/ViewportTab.module.css";
 
 type GizmoMode = "move" | "rotate" | "scale";
@@ -24,7 +24,7 @@ export const ViewportTab: React.FC = () => {
             });
         };
 
-        StateManager.set("ViewportActive", true);
+        StateService.Set({ Key: "ViewportActive", Value: true });
         ReportBounds().then(() => RendererService.SetVisible({ Visible: true }));
 
         const RO = new ResizeObserver(ReportBounds);
@@ -34,12 +34,12 @@ export const ViewportTab: React.FC = () => {
             RO.disconnect();
             window.removeEventListener("resize", ReportBounds);
             RendererService.SetVisible({ Visible: false });
-            StateManager.set("ViewportActive", false);
+            StateService.Set({ Key: "ViewportActive", Value: false });
         };
     }, []);
     useEffect(() => {
         const unlisten = listen<string | null>("vp-selected", (event) => {
-            StateManager.set("SelectedPartId", event.payload ?? null);
+            StateService.Set({ Key: "SelectedPartId", Value: event.payload ?? null });
         });
         return () => { unlisten.then(f => f()); };
     }, []);
@@ -50,7 +50,7 @@ export const ViewportTab: React.FC = () => {
             const k = E.key.toLowerCase();
 
             const SetMode = (m: GizmoMode) => {
-                StateManager.set("GizmoMode", m);
+                StateService.Set({ Key: "GizmoMode", Value: m });
                 RendererService.SetGizmoMode({ Mode: m }).catch(() => {});
             };
             if (k === "w") SetMode("move");
@@ -59,10 +59,10 @@ export const ViewportTab: React.FC = () => {
             if (k === "f") RendererService.FrameSelected().catch(() => {});
 
             if (k === "delete" || k === "backspace") {
-                const PartId = StateManager.get("SelectedPartId") as string | null;
+                const PartId = StateService.Get<string | null>({ Key: "SelectedPartId" });
                 if (PartId) {
                     RendererService.DeletePart({ Id: PartId })
-                        .then(() => StateManager.set("SelectedPartId", null))
+                        .then(() => StateService.Set({ Key: "SelectedPartId", Value: null }))
                         .catch(() => {});
                 }
             }
@@ -70,13 +70,13 @@ export const ViewportTab: React.FC = () => {
             if ((E.ctrlKey || E.metaKey) && k === "z") {
                 E.preventDefault();
                 RendererService.Undo()
-                    .then(() => StateManager.set("SelectedPartId", null))
+                    .then(() => StateService.Set({ Key: "SelectedPartId", Value: null }))
                     .catch(() => {});
             }
             if ((E.ctrlKey || E.metaKey) && (k === "y" || (E.shiftKey && k === "z"))) {
                 E.preventDefault();
                 RendererService.Redo()
-                    .then(() => StateManager.set("SelectedPartId", null))
+                    .then(() => StateService.Set({ Key: "SelectedPartId", Value: null }))
                     .catch(() => {});
             }
         };

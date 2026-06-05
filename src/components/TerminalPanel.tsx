@@ -35,9 +35,10 @@ interface TerminalPanelProps {
     ActiveFile:  string | null;
     FileContent: string;
     Workspace:   string | null;
+    OnOpenFile:  (Path: string) => void | Promise<void>;
 }
 
-export const TerminalPanel: React.FC<TerminalPanelProps> = ({ Output, OnCommand, ActiveFile, FileContent, Workspace }) => {
+export const TerminalPanel: React.FC<TerminalPanelProps> = ({ Output, OnCommand, ActiveFile, FileContent, Workspace, OnOpenFile }) => {
     const IsOpen = UsePanel("Terminal");
     const InputRef = useRef<HTMLInputElement>(null);
     const OutputRef = useRef<HTMLDivElement>(null);
@@ -130,7 +131,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ Output, OnCommand,
                     </div>
                 </>
             ) : (
-                <AiPanel ActiveFile={ActiveFile} FileContent={FileContent} Workspace={Workspace} />
+                <AiPanel ActiveFile={ActiveFile} FileContent={FileContent} Workspace={Workspace} OnOpenFile={OnOpenFile} />
             )}
         </div>
     );

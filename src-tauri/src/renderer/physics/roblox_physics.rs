@@ -13,7 +13,9 @@ pub struct RobloxPhysics {
 
 impl RobloxPhysics {
     pub fn New() -> Self {
-        Self { Base: NyxPhysics::New(RobloxProfile()) }
+        Self {
+            Base: NyxPhysics::New(RobloxProfile()),
+        }
     }
 
     pub fn Reset(&mut self, Commands: &[Value]) {
@@ -33,30 +35,37 @@ fn RobloxProfile() -> NyxEngineProfile {
     let mut Materials = HashMap::new();
     for (Name, Density, Friction, Restitution) in [
         ("SmoothPlastic", 0.70, 0.30, 0.00),
-        ("Plastic",       0.70, 0.30, 0.00),
-        ("Wood",          0.55, 0.48, 0.20),
-        ("WoodPlanks",    0.55, 0.48, 0.20),
-        ("Metal",         7.80, 0.40, 0.25),
-        ("DiamondPlate",  7.80, 0.35, 0.25),
-        ("Brick",         2.00, 0.80, 0.15),
-        ("Concrete",      2.40, 0.70, 0.10),
-        ("Granite",       2.70, 0.40, 0.10),
-        ("Marble",        2.70, 0.20, 0.17),
-        ("Cobblestone",   2.20, 0.50, 0.17),
-        ("Slate",         2.70, 0.40, 0.21),
-        ("Ice",           0.92, 0.02, 0.15),
-        ("Grass",         0.35, 0.40, 0.10),
-        ("Sand",          1.60, 0.50, 0.05),
-        ("Fabric",        0.30, 0.35, 0.05),
-        ("Rubber",        1.10, 0.80, 0.80),
-        ("Neon",          0.70, 0.30, 0.20),
-        ("Glass",         2.50, 0.25, 0.20),
-        ("ForceField",    0.20, 0.30, 0.30),
-        ("Rock",          2.20, 0.50, 0.17),
-        ("Pebble",        2.00, 0.45, 0.17),
+        ("Plastic", 0.70, 0.30, 0.00),
+        ("Wood", 0.55, 0.48, 0.20),
+        ("WoodPlanks", 0.55, 0.48, 0.20),
+        ("Metal", 7.80, 0.40, 0.25),
+        ("DiamondPlate", 7.80, 0.35, 0.25),
+        ("Brick", 2.00, 0.80, 0.15),
+        ("Concrete", 2.40, 0.70, 0.10),
+        ("Granite", 2.70, 0.40, 0.10),
+        ("Marble", 2.70, 0.20, 0.17),
+        ("Cobblestone", 2.20, 0.50, 0.17),
+        ("Slate", 2.70, 0.40, 0.21),
+        ("Ice", 0.92, 0.02, 0.15),
+        ("Grass", 0.35, 0.40, 0.10),
+        ("Sand", 1.60, 0.50, 0.05),
+        ("Fabric", 0.30, 0.35, 0.05),
+        ("Rubber", 1.10, 0.80, 0.80),
+        ("Neon", 0.70, 0.30, 0.20),
+        ("Glass", 2.50, 0.25, 0.20),
+        ("ForceField", 0.20, 0.30, 0.30),
+        ("Rock", 2.20, 0.50, 0.17),
+        ("Pebble", 2.00, 0.45, 0.17),
         ("CorrodedMetal", 7.00, 0.70, 0.15),
     ] {
-        Materials.insert(Name.to_string(), NyxMaterial { Density, Friction, Restitution });
+        Materials.insert(
+            Name.to_string(),
+            NyxMaterial {
+                Density,
+                Friction,
+                Restitution,
+            },
+        );
     }
 
     NyxEngineProfile {

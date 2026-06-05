@@ -66,8 +66,6 @@ function Levenshtein(A: string, B: string): number {
     }
     return Row[N];
 }
-
-// Binary search: find the 0-based line index containing character offset Pos.
 function LineFromOffset(Offsets: Int32Array, Pos: number): number {
     let Lo = 0, Hi = Offsets.length - 2;
     while (Lo < Hi) {
@@ -161,8 +159,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     const Lines    = useMemo(() => FileContent.split("\n"), [FileContent]);
     const Language = useMemo(() => DetectLanguage(FileName), [FileName]);
     FileContentRef.current = FileContent;
-
-    // Cached line height — updated by MutationObserver when settings change, not on every render
     const [LH, SetLH] = useState(ComputeLH);
     LhRef.current = LH;
     CursorLineRef.current = CursorLine;
@@ -170,21 +166,15 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     const ViewH    = TextAreaRef.current?.clientHeight ?? 600;
     const VisStart = Math.max(0, Math.floor((ScrollTopPx - 14) / LH) - OVERSCAN);
     const VisEnd   = Math.max(VisStart, Math.min(Lines.length, Math.ceil((ScrollTopPx - 14 + ViewH) / LH) + OVERSCAN + 1));
-
-    // Cumulative character offsets — O(n) once per file change, O(1) per scroll via binary search
     const LineOffsets = useMemo(() => {
         const O = new Int32Array(Lines.length + 1);
         for (let i = 0; i < Lines.length; i++) O[i + 1] = O[i] + Lines[i].length + 1;
         return O;
     }, [Lines]);
-
-    // Always-current ref so stable callbacks can read offsets without deps
     LineOffsetsRef.current = LineOffsets;
 
     const PreChars    = LineOffsets[VisStart] ?? 0;
     const VisEndChars = LineOffsets[Math.min(VisEnd, Lines.length)] ?? FileContent.length;
-
-    // Only tokenise the visible window
     const VisText                   = useMemo(() => FileContent.slice(PreChars, VisEndChars), [FileContent, PreChars, VisEndChars]);
     const [VisTokens, SetVisTokens] = useState<Token[]>([]);
 
@@ -379,9 +369,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             UpdateCursorFromTextarea(TextAreaRef.current);
         }
     });
-
-    // Keep the uncontrolled textarea aligned when content arrives after the
-    // active document changes, such as a newly opened file finishing its read.
     useLayoutEffect(() => {
         const Textarea = TextAreaRef.current;
         if (!Textarea || Textarea.value === FileContent) return;
@@ -797,21 +784,15 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         if (EditorWrapperRef.current && LhRef.current > 0) {
             EditorWrapperRef.current.style.setProperty("--cursor-top", `${14 + (CursorLineRef.current - 1) * LhRef.current - NewScrollTop}px`);
         }
-
-        // Check if we need to shift the virtual window
         if (LhRef.current > 0) {
             const OldLine = Math.floor((ScrollTopPxRef.current - 14) / LhRef.current);
             const NewLine = Math.floor((NewScrollTop - 14) / LhRef.current);
-
-            // Only update state when visible lines change - this batches overlay syncing
             if (NewLine !== OldLine) {
                 ScrollTopPxRef.current = NewScrollTop;
                 SetScrollTopPx(NewScrollTop);
             }
         }
     }, []);
-
-    // Cleanup RAF and timers on unmount to avoid stale callbacks
     useEffect(() => {
         return () => {
             if (RafRef.current !== null) {

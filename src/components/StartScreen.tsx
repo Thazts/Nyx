@@ -26,7 +26,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({ OnOpenFolder, OnContin
             <div className={styles.Content}>
                 {IsLoading ? (
                     <div className={styles.LoadingState}>
-                        <img src="/media/Kitty.png" alt="" className={styles.LoadingCat} />
+                        <img src="/Kitty.png" alt="" className={styles.LoadingCat} />
                         <span className={styles.LoadingLabel}>Building workspace...</span>
                     </div>
                 ) : (

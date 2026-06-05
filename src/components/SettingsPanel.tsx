@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import styles from "../styles/SettingsPanel.module.css";
-import { AiService } from "../services/AiService";
+import { AiMode, AiService } from "../services/AiService";
 
 interface Settings {
     FontSize:   number;
@@ -79,7 +79,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
     const [DeepseekKeySet,    SetDeepseekKeySet]    = useState(false);
     const [Configuring,       SetConfiguring]       = useState(false);
     const [ObsidianPath,      SetObsidianPath]      = useState("");
-    const [AiMode,            SetAiMode]            = useState<"supervised" | "autonomous">("supervised");
+    const [AiModeValue,       SetAiModeValue]       = useState<AiMode>("supervised");
     const PollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const RefreshKeyStatus = useCallback(() => {
@@ -93,7 +93,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
         RefreshKeyStatus();
         AiService.GetAppSettings().then(S => {
             SetObsidianPath(S.ObsidianVaultPath ?? "");
-            SetAiMode(S.AiMode);
+            SetAiModeValue(S.AiMode);
         }).catch(() => {});
         return () => { if (PollRef.current) clearTimeout(PollRef.current); };
     }, []);
@@ -110,14 +110,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
     const HandleSaveAiSettings = useCallback(async () => {
         await AiService.SaveAppSettings({
             ObsidianVaultPath: ObsidianPath.trim() || null,
-            AiMode,
+            AiMode: AiModeValue,
         });
-    }, [ObsidianPath, AiMode]);
+    }, [ObsidianPath, AiModeValue]);
 
     const HandleModeToggle = useCallback(() => {
-        const Next = AiMode === "supervised" ? "autonomous" : "supervised";
-        SetAiMode(Next);
-    }, [AiMode]);
+        const Next: AiMode =
+            AiModeValue === "supervised" ? "autonomous" :
+            AiModeValue === "autonomous" ? "agentic" :
+            "supervised";
+        SetAiModeValue(Next);
+        AiService.GetAppSettings().then(S =>
+            AiService.SaveAppSettings({ ...S, AiMode: Next })
+        ).catch(() => {});
+    }, [AiModeValue]);
 
     useEffect(() => { ApplySettings(S); SaveSettings(S); }, [S]);
 
@@ -237,15 +243,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
                         <div className={styles.Row} style={{ marginTop: 16 }}>
                             <div className={styles.Label}>Default Mode</div>
                             <button
-                                className={`${styles.Toggle} ${AiMode === "autonomous" ? styles.ToggleOn : ""}`}
+                                className={`${styles.Toggle} ${AiModeValue !== "supervised" ? styles.ToggleOn : ""}`}
                                 onClick={HandleModeToggle}
-                                title={AiMode === "supervised" ? "Supervised — writes/commands need approval" : "Autonomous — AI executes everything"}
+                                title={
+                                    AiModeValue === "supervised" ? "Supervised - writes/commands need approval" :
+                                    AiModeValue === "autonomous" ? "Autonomous - AI executes everything" :
+                                    "Agentic - sliced autonomous execution with memory checkpoints"
+                                }
                             >
                                 <div className={styles.ToggleThumb} />
                             </button>
                         </div>
                         <div className={styles.Hint} style={{ marginBottom: 12 }}>
-                            {AiMode === "supervised" ? "Supervised — file writes & commands need approval" : "Autonomous — AI executes all tools without asking"}
+                            {AiModeValue === "supervised" ? "Supervised - file writes & commands need approval" :
+                             AiModeValue === "autonomous" ? "Autonomous - AI executes all tools without asking" :
+                             "Agentic - plans in short slices and writes memory checkpoints"}
                         </div>
 
                         <div className={styles.Label} style={{ marginBottom: 8 }}>Obsidian Vault Path</div>

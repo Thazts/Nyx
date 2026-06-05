@@ -13,7 +13,9 @@ pub struct UnityPhysics {
 
 impl UnityPhysics {
     pub fn New() -> Self {
-        Self { Base: NyxPhysics::New(UnityProfile()) }
+        Self {
+            Base: NyxPhysics::New(UnityProfile()),
+        }
     }
 
     pub fn Reset(&mut self, Commands: &[Value]) {
@@ -32,17 +34,24 @@ impl UnityPhysics {
 fn UnityProfile() -> NyxEngineProfile {
     let mut Materials = HashMap::new();
     for (Name, Density, Friction, Restitution) in [
-        ("Default",       1.00, 0.60, 0.00),
+        ("Default", 1.00, 0.60, 0.00),
         ("SmoothPlastic", 1.00, 0.45, 0.00),
-        ("Plastic",       1.00, 0.45, 0.00),
-        ("Wood",          0.70, 0.50, 0.05),
-        ("Metal",         7.80, 0.55, 0.05),
-        ("Concrete",      2.40, 0.70, 0.00),
-        ("Ice",           0.92, 0.03, 0.00),
-        ("Rubber",        1.10, 0.95, 0.35),
-        ("Glass",         2.50, 0.20, 0.02),
+        ("Plastic", 1.00, 0.45, 0.00),
+        ("Wood", 0.70, 0.50, 0.05),
+        ("Metal", 7.80, 0.55, 0.05),
+        ("Concrete", 2.40, 0.70, 0.00),
+        ("Ice", 0.92, 0.03, 0.00),
+        ("Rubber", 1.10, 0.95, 0.35),
+        ("Glass", 2.50, 0.20, 0.02),
     ] {
-        Materials.insert(Name.to_string(), NyxMaterial { Density, Friction, Restitution });
+        Materials.insert(
+            Name.to_string(),
+            NyxMaterial {
+                Density,
+                Friction,
+                Restitution,
+            },
+        );
     }
 
     NyxEngineProfile {

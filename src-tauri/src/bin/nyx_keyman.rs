@@ -1,9 +1,9 @@
 use std::io::{self, BufRead, Write};
 use zeroize::Zeroize;
 
-const KEYRING_SERVICE:   &str = "nyx-ide";
+const KEYRING_SERVICE: &str = "nyx-ide";
 const KEYRING_ANTHROPIC: &str = "anthropic";
-const KEYRING_DEEPSEEK:  &str = "deepseek";
+const KEYRING_DEEPSEEK: &str = "deepseek";
 
 const ACC: &str = "\x1b[38;2;212;176;204m";
 const DIM: &str = "\x1b[38;2;86;80;95m";
@@ -13,7 +13,7 @@ const GRN: &str = "\x1b[38;2;100;220;130m";
 const RED: &str = "\x1b[38;2;220;100;100m";
 const RST: &str = "\x1b[0m";
 
-fn enable_ansi() {
+fn EnableAnsi() {
     #[cfg(windows)]
     unsafe {
         use windows_sys::Win32::System::Console::{
@@ -28,7 +28,7 @@ fn enable_ansi() {
     }
 }
 
-fn clear_clipboard() {
+fn ClearClipboard() {
     let _ = std::process::Command::new("cmd")
         .args(["/C", "echo.|clip"])
         .output();
@@ -41,14 +41,19 @@ fn pause() {
 }
 
 fn main() {
-    enable_ansi();
+    EnableAnsi();
 
     println!();
     println!("  {}╭────────────────────────────────────╮{}", ACC, RST);
     println!(
         "  {}│{}  {BLD}{TXT}NYX{RST}  {DIM}·{RST}  Key Manager              {ACC}│{RST}",
-        ACC, RST,
-        BLD = BLD, TXT = TXT, RST = RST, DIM = DIM, ACC = ACC
+        ACC,
+        RST,
+        BLD = BLD,
+        TXT = TXT,
+        RST = RST,
+        DIM = DIM,
+        ACC = ACC
     );
     println!("  {}╰────────────────────────────────────╯{}", ACC, RST);
     println!();
@@ -64,14 +69,17 @@ fn main() {
     print!("  {}>{} ", ACC, RST);
     let _ = io::stdout().flush();
 
-    let choice = io::stdin().lock().lines().next()
+    let choice = io::stdin()
+        .lock()
+        .lines()
+        .next()
         .and_then(|l| l.ok())
         .unwrap_or_default();
     let choice = choice.trim().to_string();
 
     let (account, label) = match choice.as_str() {
         "1" => (KEYRING_ANTHROPIC, "Anthropic"),
-        "2" => (KEYRING_DEEPSEEK,  "DeepSeek"),
+        "2" => (KEYRING_DEEPSEEK, "DeepSeek"),
         _ => {
             println!("\n  {}Invalid selection. Enter 1 or 2.{}", RED, RST);
             pause();
@@ -80,8 +88,14 @@ fn main() {
     };
 
     println!();
-    println!("  {}Paste your {} API key and press Enter:{}", TXT, label, RST);
-    println!("  {}Input is hidden  ·  clipboard is cleared after{}", DIM, RST);
+    println!(
+        "  {}Paste your {} API key and press Enter:{}",
+        TXT, label, RST
+    );
+    println!(
+        "  {}Input is hidden  ·  clipboard is cleared after{}",
+        DIM, RST
+    );
     println!();
     print!("  {}>{} ", ACC, RST);
     let _ = io::stdout().flush();
@@ -101,7 +115,7 @@ fn main() {
         .and_then(|entry| entry.set_password(&key).map_err(|e| e.to_string()));
 
     key.zeroize();
-    clear_clipboard();
+    ClearClipboard();
 
     match result {
         Ok(_) => {

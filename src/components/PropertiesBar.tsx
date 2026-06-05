@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import styles from "../styles/PropertiesBar.module.css";
-import { StateManager } from "../state/StateManager";
 import { useStateKey } from "../state/useStateKey";
 import { RendererService } from "../services/RendererService";
+import { StateService } from "../services/StateService";
 
 interface FileEntry {
     Name: string;
@@ -159,7 +159,7 @@ export const PropertiesBar: React.FC<PropertiesBarProps> = ({
 
     let PropertiesBody: React.ReactNode;
     const SetGizmoMode = useCallback((Mode: string) => {
-        StateManager.set("GizmoMode", Mode);
+        StateService.Set({ Key: "GizmoMode", Value: Mode });
         RendererService.SetGizmoMode({ Mode }).catch(() => {});
     }, []);
 

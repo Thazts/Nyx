@@ -25,7 +25,9 @@ enum EnginePhysics {
 
 impl Default for PhysicsWorld {
     fn default() -> Self {
-        Self { Engine: EnginePhysics::Roblox(RobloxPhysics::New()) }
+        Self {
+            Engine: EnginePhysics::Roblox(RobloxPhysics::New()),
+        }
     }
 }
 
