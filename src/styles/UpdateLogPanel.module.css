@@ -1,0 +1,150 @@
+.Backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 9;
+    background: rgba(0, 0, 0, 0.18);
+    animation: FadeIn 0.2s ease both;
+}
+
+@keyframes FadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.Panel {
+    position: absolute;
+    top: 35px;
+    right: 0;
+    bottom: 0;
+    width: 280px;
+    background: var(--bg);
+    border-left: 1px solid var(--brd);
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+    transform: translateX(100%);
+    transition: transform 0.42s var(--spring);
+}
+
+.PanelOpen {
+    transform: translateX(0);
+}
+
+.Header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--brd);
+    flex-shrink: 0;
+}
+
+.HeaderTitle {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.CloseBtn {
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--tf), color var(--tf);
+    line-height: 1;
+}
+
+.CloseBtn:hover {
+    background: rgba(255,255,255,0.06);
+    color: var(--txt2);
+}
+
+.List {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 0;
+}
+
+.EntryRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    transition: background var(--tf);
+}
+
+.EntryRow:hover {
+    background: rgba(255,255,255,0.03);
+}
+
+.DotCol {
+    width: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.MajorDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--acc);
+    box-shadow: 0 0 8px rgba(212,176,204,0.55), 0 0 16px rgba(212,176,204,0.25);
+    animation: DotPulse 2.4s ease-in-out infinite;
+    display: block;
+}
+
+@keyframes DotPulse {
+    0%, 100% { box-shadow: 0 0 6px rgba(212,176,204,0.4),  0 0 12px rgba(212,176,204,0.15); }
+    50%       { box-shadow: 0 0 10px rgba(212,176,204,0.75), 0 0 20px rgba(212,176,204,0.35); }
+}
+
+.EntryData {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+}
+
+.Focus {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.5;
+    flex-shrink: 0;
+}
+
+.Focus_NEW    { background: rgba(170, 205, 180, 0.12); color: var(--str); }
+.Focus_FIX    { background: rgba(212, 176, 204, 0.12); color: var(--acc); }
+.Focus_PERF   { background: rgba(232, 200, 162, 0.12); color: var(--num); }
+.Focus_CHANGE { background: rgba(181, 200, 232, 0.12); color: var(--fn);  }
+
+.EntryUnix {
+    color: var(--txt3);
+    opacity: 0.7;
+}
+
+.EntrySep {
+    color: var(--txt3);
+    opacity: 0.4;
+}
+
+.EntryDate {
+    color: var(--txt2);
+}

@@ -32,6 +32,13 @@ InitSettings();
 const RECENT_KEY = "nyx_recent_workspaces";
 const MAX_RECENT = 5;
 
+const MODEL_EXTENSIONS = new Set(["obj", "fbx", "gltf", "glb", "blend", "dae", "stl", "ply"]);
+const IsModelFile = (Path: string): boolean => {
+    const FileName = Path.split(/[\\/]/).pop() ?? "";
+    const Ext = FileName.split(".").pop()?.toLowerCase() ?? "";
+    return MODEL_EXTENSIONS.has(Ext);
+};
+
 function GetRecentWorkspaces(): string[] {
     try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]"); }
     catch { return []; }
@@ -499,7 +506,41 @@ export const App: React.FC = () => {
         }
     }, [BuildFileTree]);
 
+    const HandleOpenModelFile = useCallback(async (SourcePath: string) => {
+        const ModelPath = `model:${SourcePath}`;
+        const FileName = SourcePath.split(/[\\/]/).pop() ?? "model";
+
+        const Entry = FindEntry(FileTree, SourcePath);
+        SetSelectedEntry(Entry);
+        try {
+            const Meta = await FileService.GetFileMetadata({ Path: SourcePath });
+            LastKnownMtimeRef.current = Meta.Modified;
+            SetSelectedMetadata(Meta);
+        } catch {
+            SetSelectedMetadata(null);
+        }
+
+        if (!OpenTabs.find(T => T.Path === ModelPath)) {
+            SetOpenTabs(Prev => {
+                const Next = [...Prev, { Path: ModelPath, Name: FileName, Content: "", DiskContent: "", Type: "viewport" as const }];
+                StateService.Set({ Key: "OpenTabs", Value: Next });
+                return Next;
+            });
+        }
+        SetActiveFile(ModelPath);
+        StateService.Set({ Key: "ActiveFile", Value: ModelPath });
+        FileContentRef.current = "";
+        DiskContentRef.current = "";
+        SetFileContent("");
+        SetActiveTabModified(false);
+        SetTerminalOutput(Prev => [...Prev, `▶ Model: ${FileName}`]);
+    }, [FileTree, OpenTabs]);
+
     const HandleFileSelect = useCallback(async (Path: string) => {
+        if (IsModelFile(Path)) {
+            await HandleOpenModelFile(Path);
+            return;
+        }
         const Flat = FlattenTree(FileTree);
         const NewIndex = Flat.findIndex(E => E.Path === Path);
         const PrevIndex = PrevActiveFileRef.current
@@ -561,7 +602,7 @@ export const App: React.FC = () => {
         } catch {
             SetFileContent("// Could not load file");
         }
-    }, [FileTree, OpenTabs]);
+    }, [FileTree, OpenTabs, HandleOpenModelFile]);
 
     const ResolveWorkspaceFilePath = useCallback((Path: string): string | null => {
         if (!WorkspacePath) return null;
@@ -610,7 +651,6 @@ export const App: React.FC = () => {
             SetFileTree(NewTree);
             StateService.Set({ Key: "FileTree", Value: NewTree });
         } catch {
-            // Keep the edit card usable even if a transient tree refresh fails.
         }
 
         try {
@@ -664,6 +704,31 @@ export const App: React.FC = () => {
             Unlisten?.();
         };
     }, [RefreshWorkspaceAfterAiChange]);
+
+    useEffect(() => {
+        if (!WorkspacePath) return;
+        let Cancelled = false;
+        let Unlisten: (() => void) | null = null;
+
+        listen("workspace_changed", () => {
+            if (Cancelled) return;
+            BuildFileTree(WorkspacePath)
+                .then(Tree => {
+                    if (Cancelled) return;
+                    SetFileTree(Tree);
+                    StateService.Set({ Key: "FileTree", Value: Tree });
+                })
+                .catch(() => {});
+        }).then(Fn => {
+            if (Cancelled) Fn();
+            else Unlisten = Fn;
+        }).catch(() => {});
+
+        return () => {
+            Cancelled = true;
+            Unlisten?.();
+        };
+    }, [WorkspacePath, BuildFileTree]);
 
     const StopLiveViewport = useCallback((ViewportPath: string) => {
         const Timer = LiveViewportTimersRef.current.get(ViewportPath);

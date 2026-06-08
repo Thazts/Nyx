@@ -32,6 +32,7 @@ regex        = { version = "1", default-features = false, features = ["std"] }
 tokio        = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time", "net"] }
 ratatui      = { version = "0.29", default-features = false, features = ["crossterm"] }
 crossterm    = "0.28"
+notify       = "6"
 
 [dependencies.rwh06]
 package = "raw-window-handle"

@@ -326,6 +326,7 @@
 .IconPurple { color: var(--ty);  }
 .IconPink   { color: var(--kw);  }
 .IconMuted  { color: var(--txt3);}
+.IconOrange { color: #E8906A;    }
 
 .SaveCount {
     margin-left: auto;

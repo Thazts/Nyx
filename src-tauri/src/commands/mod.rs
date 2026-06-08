@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 use sysinfo::System;
+use notify::{RecursiveMode, Watcher};
 use tauri::{AppHandle, State};
 
 use crate::renderer::{window as nyx_window, NyxRenderer};
@@ -278,14 +279,78 @@ pub fn run_terminal_command(command: String, app_state: State<'_, AppState>) -> 
     lines
 }
 
+fn spawn_workspace_watcher(
+    path: String,
+    window: tauri::Window,
+) -> std::sync::mpsc::SyncSender<()> {
+    let (shutdown_tx, shutdown_rx) = std::sync::mpsc::sync_channel::<()>(1);
+    let (event_tx, event_rx) = std::sync::mpsc::channel::<()>();
+
+    let watcher_result = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if let Ok(event) = res {
+            match event.kind {
+                notify::EventKind::Create(_) | notify::EventKind::Remove(_) => {
+                    let _ = event_tx.send(());
+                }
+                _ => {}
+            }
+        }
+    });
+
+    match watcher_result {
+        Ok(mut w) => {
+            if w.watch(std::path::Path::new(&path), RecursiveMode::Recursive).is_ok() {
+                std::thread::spawn(move || {
+                    let _w = w;
+                    loop {
+                        if shutdown_rx.try_recv().is_ok() { break; }
+                        match event_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+                            Ok(_) => {
+                                loop {
+                                    match event_rx.recv_timeout(std::time::Duration::from_millis(400)) {
+                                        Ok(_) => {}
+                                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                                    }
+                                    if shutdown_rx.try_recv().is_ok() { return; }
+                                }
+                                if shutdown_rx.try_recv().is_ok() { break; }
+                                let _ = window.emit("workspace_changed", ());
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+                });
+            }
+        }
+        Err(e) => eprintln!("[nyx] watcher error: {e}"),
+    }
+
+    shutdown_tx
+}
+
 #[tauri::command]
-pub fn select_folder(app_state: State<'_, AppState>) -> Result<String, String> {
+pub fn select_folder(
+    app_state: State<'_, AppState>,
+    window: tauri::Window,
+) -> Result<String, String> {
     let dialog = rfd::FileDialog::new().pick_folder();
     match dialog {
         Some(path) => {
             let WorkspacePath = path.to_string_lossy().to_string();
             *app_state.workspace_path.lock().map_err(|e| e.to_string())? =
                 Some(WorkspacePath.clone());
+            if let Ok(mut guard) = app_state.watcher_shutdown.lock() {
+                if let Some(old) = guard.take() {
+                    let _ = old.send(());
+                }
+            }
+            let shutdown_tx = spawn_workspace_watcher(WorkspacePath.clone(), window);
+            if let Ok(mut guard) = app_state.watcher_shutdown.lock() {
+                *guard = Some(shutdown_tx);
+            }
+
             Ok(WorkspacePath)
         }
         None => Err("No folder selected".to_string()),

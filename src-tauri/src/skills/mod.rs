@@ -3,7 +3,6 @@ pub struct Skill {
     pub label:   &'static str,
     pub domain:  &'static str,
     pub when:    &'static str,
-    // Embedded fallback — used when the disk file is missing (e.g. dev builds).
     content: &'static str,
 }
 

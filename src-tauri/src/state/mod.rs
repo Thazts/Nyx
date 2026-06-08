@@ -17,6 +17,7 @@ pub struct AppState {
     pub viewport_visible: Mutex<bool>,
     pub ai_activity: Mutex<Option<String>>, // { activity label }
     pub ai_pending_approval: Mutex<Option<String>>, // { tool call id }
+    pub watcher_shutdown: Mutex<Option<std::sync::mpsc::SyncSender<()>>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -43,6 +44,7 @@ impl Default for AppState {
             viewport_visible: Mutex::new(false),
             ai_activity: Mutex::new(None),
             ai_pending_approval: Mutex::new(None),
+            watcher_shutdown: Mutex::new(None),
         }
     }
 }

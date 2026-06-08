@@ -3,15 +3,17 @@ import styles from "../styles/SettingsPanel.module.css";
 import { AiMode, AiService, RateLimitMode } from "../services/AiService";
 
 interface Settings {
-    FontSize:   number;
-    LineHeight: number;
-    Accent:     string;
+    FontSize:       number;
+    LineHeight:     number;
+    Accent:         string;
+    ClassicWelcome: boolean;
 }
 
 const Defaults: Settings = {
-    FontSize:   11.5,
-    LineHeight: 1.78,
-    Accent:     "#D4B0CC",
+    FontSize:       11.5,
+    LineHeight:     1.78,
+    Accent:         "#D4B0CC",
+    ClassicWelcome: false,
 };
 
 const FontSizes   = [10, 11, 11.5, 12, 13, 14];
@@ -60,6 +62,10 @@ function ApplySettings(S: Settings): void {
 
 export function InitSettings(): void {
     ApplySettings(LoadSettings());
+}
+
+export function GetClassicWelcome(): boolean {
+    return LoadSettings().ClassicWelcome ?? false;
 }
 
 interface SettingsPanelProps {
@@ -137,11 +143,16 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
         ).catch(() => {});
     }, [AiModeValue]);
 
-    useEffect(() => { ApplySettings(S); SaveSettings(S); }, [S]);
+    useEffect(() => {
+        ApplySettings(S);
+        SaveSettings(S);
+        window.dispatchEvent(new CustomEvent("nyx-settings-changed"));
+    }, [S]);
 
-    const SetFontSize = useCallback((V: number) => SetS(Prev => ({ ...Prev, FontSize: V })), []);
-    const SetLineHeight = useCallback((V: number) => SetS(Prev => ({ ...Prev, LineHeight: V })), []);
-    const SetAccent = useCallback((V: string) => SetS(Prev => ({ ...Prev, Accent: V })), []);
+    const SetFontSize       = useCallback((V: number)  => SetS(Prev => ({ ...Prev, FontSize: V })), []);
+    const SetLineHeight     = useCallback((V: number)  => SetS(Prev => ({ ...Prev, LineHeight: V })), []);
+    const SetAccent         = useCallback((V: string)  => SetS(Prev => ({ ...Prev, Accent: V })), []);
+    const ToggleClassicWelcome = useCallback(() => SetS(Prev => ({ ...Prev, ClassicWelcome: !Prev.ClassicWelcome })), []);
 
     const HandleReset = useCallback(() => {
         SetS({ ...Defaults });
@@ -219,6 +230,19 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
                                     onClick={() => SetAccent(P.Value)}
                                 />
                             ))}
+                        </div>
+
+                        <div className={styles.Row} style={{ marginTop: 16 }}>
+                            <div>
+                                <div className={styles.Label}>Classic welcome screen</div>
+                                <div className={styles.Hint}>Show a plain text file instead of the welcome panel</div>
+                            </div>
+                            <button
+                                className={`${styles.Toggle} ${S.ClassicWelcome ? styles.ToggleOn : ""}`}
+                                onClick={ToggleClassicWelcome}
+                            >
+                                <div className={styles.ToggleThumb} />
+                            </button>
                         </div>
                     </div>
 

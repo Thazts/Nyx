@@ -40,6 +40,8 @@ const ExtIconClass: Record<string, string> = {
     sql: "IconPurple",
     cs: "IconBlue", java: "IconBlue",
     wgsl: "IconGreen", glsl: "IconGreen", vert: "IconGreen", frag: "IconGreen",
+    obj: "IconOrange", fbx: "IconOrange", gltf: "IconOrange", glb: "IconOrange",
+    blend: "IconOrange", dae: "IconOrange", stl: "IconOrange", ply: "IconOrange",
 };
 
 function GetFileIconClass(Name: string): string {

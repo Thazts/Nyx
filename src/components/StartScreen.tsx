@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import styles from "../styles/StartScreen.module.css";
+import { PatchNotesList } from "./PatchNotesList";
+import { RoadmapList } from "./RoadmapList";
 
 interface StartScreenProps {
     OnOpenFolder:  () => void;
@@ -15,7 +17,11 @@ const FolderIcon = () => (
     </svg>
 );
 
+const TAB_INDEX: Record<"start" | "changelog" | "roadmap", 0 | 1 | 2> = { start: 0, changelog: 1, roadmap: 2 };
+
 export const StartScreen: React.FC<StartScreenProps> = ({ OnOpenFolder, OnContinue, OnOpenRecent, IsLoading, RecentPaths }) => {
+    const [ActiveTab, SetActiveTab] = useState<"start" | "changelog" | "roadmap">("start");
+
     return (
         <div className={styles.Container}>
             <div className={styles.Glow} />
@@ -31,39 +37,75 @@ export const StartScreen: React.FC<StartScreenProps> = ({ OnOpenFolder, OnContin
                     </div>
                 ) : (
                     <>
-                        <div className={styles.Brand}>
-                            <div className={styles.BrandRow}>
-                                <span className={styles.BrandDot} />
-                                <h1 className={styles.Title}>Nyx</h1>
+                        <div className={styles.TabRow}>
+                            <div className={`${styles.TabIndicator} ${styles[`TabIndicatorPos${TAB_INDEX[ActiveTab]}`]}`} />
+                            <button
+                                className={`${styles.TabBtn} ${ActiveTab === "start" ? styles.TabBtnActive : ""}`}
+                                onClick={() => SetActiveTab("start")}
+                            >
+                                Start
+                            </button>
+                            <button
+                                className={`${styles.TabBtn} ${ActiveTab === "changelog" ? styles.TabBtnActive : ""}`}
+                                onClick={() => SetActiveTab("changelog")}
+                            >
+                                What's New
+                            </button>
+                            <button
+                                className={`${styles.TabBtn} ${ActiveTab === "roadmap" ? styles.TabBtnActive : ""}`}
+                                onClick={() => SetActiveTab("roadmap")}
+                            >
+                                What's Next
+                            </button>
+                        </div>
+
+                        <div key={ActiveTab} className={styles.TabContent}>
+                        {ActiveTab === "start" ? (
+                            <>
+                                <div className={styles.Brand}>
+                                    <div className={styles.BrandRow}>
+                                        <span className={styles.BrandDot} />
+                                        <h1 className={styles.Title}>Nyx</h1>
+                                    </div>
+                                    <p className={styles.Tagline}>code editor · v0.2.2</p>
+                                </div>
+
+                                <div className={styles.Actions}>
+                                    <button className={styles.PrimaryBtn} onClick={OnOpenFolder}>
+                                        <FolderIcon />
+                                        Open Folder
+                                    </button>
+                                    <button className={styles.GhostBtn} onClick={OnContinue}>
+                                        Continue without folder
+                                    </button>
+                                </div>
+
+                                {RecentPaths.length > 0 && (
+                                    <div className={styles.Recent}>
+                                        <span className={styles.RecentLabel}>Recent</span>
+                                        {RecentPaths.map(P => {
+                                            const Name = P.split(/[\\/]/).pop() ?? P;
+                                            const Dir  = P.slice(0, P.length - Name.length - 1);
+                                            return (
+                                                <button key={P} className={styles.RecentItem} onClick={() => OnOpenRecent(P)}>
+                                                    <span className={styles.RecentName}>{Name}</span>
+                                                    <span className={styles.RecentPath}>{Dir}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </>
+                        ) : ActiveTab === "changelog" ? (
+                            <div className={styles.ChangelogPanel}>
+                                <PatchNotesList />
                             </div>
-                            <p className={styles.Tagline}>code editor · v0.1.0</p>
-                        </div>
-
-                        <div className={styles.Actions}>
-                            <button className={styles.PrimaryBtn} onClick={OnOpenFolder}>
-                                <FolderIcon />
-                                Open Folder
-                            </button>
-                            <button className={styles.GhostBtn} onClick={OnContinue}>
-                                Continue without folder
-                            </button>
-                        </div>
-
-                        {RecentPaths.length > 0 && (
-                            <div className={styles.Recent}>
-                                <span className={styles.RecentLabel}>Recent</span>
-                                {RecentPaths.map(P => {
-                                    const Name = P.split(/[\\/]/).pop() ?? P;
-                                    const Dir  = P.slice(0, P.length - Name.length - 1);
-                                    return (
-                                        <button key={P} className={styles.RecentItem} onClick={() => OnOpenRecent(P)}>
-                                            <span className={styles.RecentName}>{Name}</span>
-                                            <span className={styles.RecentPath}>{Dir}</span>
-                                        </button>
-                                    );
-                                })}
+                        ) : (
+                            <div className={styles.ChangelogPanel}>
+                                <RoadmapList />
                             </div>
                         )}
+                        </div>
                     </>
                 )}
             </div>

@@ -1,9 +1,15 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from "react";
 import styles from "../styles/EditorArea.module.css";
 import { DetectLanguage, type Token } from "../services/Tokenizer";
+import { GetCompletions, GetSignatureHelp, GetWordContext, type CompletionItem, type SignatureHelp } from "../services/Completer";
+import { CompletionPopup } from "./CompletionPopup";
 import { HighlightOverlay } from "./HighlightOverlay";
 import { SearchBar } from "./SearchBar";
 import { UILib, UsePanel } from "../ui/UILib";
+import { GetClassicWelcome } from "./SettingsPanel";
+import { PatchNotesList } from "./PatchNotesList";
+import { RoadmapList } from "./RoadmapList";
+import { UpdateLogPanel } from "./UpdateLogPanel";
 
 const OVERSCAN        = 80;
 const FUZZY_THRESHOLD = 3_000;
@@ -52,6 +58,12 @@ interface SearchMatchEntry {
     Kind: 'exact' | 'fuzzy';
 }
 
+interface DiagnosticEntry {
+    Line: number;
+    Message: string;
+    Severity: "warning" | "error";
+}
+
 function Levenshtein(A: string, B: string): number {
     const M = A.length, N = B.length;
     const Row = Array.from({ length: N + 1 }, (_, I) => I);
@@ -84,6 +96,151 @@ function ComputeLH(): number {
 
 function VisibleLineEnd(Line: string): number {
     return Line.trimEnd().length;
+}
+
+function BuildDirtyLines(Content: string, DiskContent: string | undefined): Set<number> {
+    const Result = new Set<number>();
+    if (DiskContent === undefined || Content === DiskContent) return Result;
+
+    const A = DiskContent.split("\n");
+    const B = Content.split("\n");
+    const M = A.length, N = B.length;
+
+    let Pre = 0;
+    const MinLen = Math.min(M, N);
+    while (Pre < MinLen && A[Pre] === B[Pre]) Pre++;
+
+    let Suf = 0;
+    while (Suf < MinLen - Pre && A[M - 1 - Suf] === B[N - 1 - Suf]) Suf++;
+
+    const Ao = A.slice(Pre, M - Suf || M);
+    const Bo = B.slice(Pre, N - Suf || N);
+    const Am = Ao.length, Bm = Bo.length;
+
+    if (Am === 0) {
+        for (let J = 0; J < Bm; J++) Result.add(Pre + J + 1);
+        return Result;
+    }
+    if (Bm === 0) return Result;
+
+    if (Am * Bm > 250_000) {
+        for (let I = 0; I < Math.max(Am, Bm); I++) {
+            if ((Ao[I] ?? "") !== (Bo[I] ?? "")) Result.add(Pre + I + 1);
+        }
+        return Result;
+    }
+    const Dp: Int32Array[] = Array.from({ length: Am + 1 }, () => new Int32Array(Bm + 1));
+    for (let I = Am - 1; I >= 0; I--) {
+        for (let J = Bm - 1; J >= 0; J--) {
+            Dp[I][J] = Ao[I] === Bo[J]
+                ? Dp[I + 1][J + 1] + 1
+                : Math.max(Dp[I + 1][J], Dp[I][J + 1]);
+        }
+    }
+    let I = 0, J = 0;
+    while (I < Am && J < Bm) {
+        if (Ao[I] === Bo[J] && Dp[I][J] === Dp[I + 1][J + 1] + 1) {
+            I++; J++;
+        } else if (Dp[I + 1][J] >= Dp[I][J + 1]) {
+            I++;
+        } else {
+            Result.add(Pre + J + 1);
+            J++;
+        }
+    }
+    while (J < Bm) { Result.add(Pre + J + 1); J++; }
+
+    return Result;
+}
+
+function BuildDiagnostics(Content: string, Language: string): DiagnosticEntry[] {
+    const Diagnostics: DiagnosticEntry[] = [];
+    const Lines = Content.split("\n");
+    const BracketPairs: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+    const BracketOpen = new Set(Object.keys(BracketPairs));
+    const BracketClose = new Set(Object.values(BracketPairs));
+    const Stack: Array<{ Char: string; Line: number }> = [];
+
+    Lines.forEach((Line, Index) => {
+        if (/\s+$/.test(Line)) {
+            Diagnostics.push({
+                Line: Index + 1,
+                Message: "Trailing whitespace",
+                Severity: "warning",
+            });
+        }
+
+        let Quote: string | null = null;
+        for (let I = 0; I < Line.length; I++) {
+            const Char = Line[I];
+            const Prev = Line[I - 1];
+            if ((Char === "\"" || Char === "'" || Char === "`") && Prev !== "\\") {
+                Quote = Quote === Char ? null : Quote ?? Char;
+                continue;
+            }
+            if (Quote) continue;
+
+            if (BracketOpen.has(Char)) {
+                Stack.push({ Char, Line: Index + 1 });
+            } else if (BracketClose.has(Char)) {
+                const Last = Stack[Stack.length - 1];
+                if (!Last || BracketPairs[Last.Char] !== Char) {
+                    Diagnostics.push({
+                        Line: Index + 1,
+                        Message: `Unexpected '${Char}'`,
+                        Severity: "error",
+                    });
+                } else {
+                    Stack.pop();
+                }
+            }
+        }
+    });
+
+    for (const Item of Stack.slice(-12)) {
+        Diagnostics.push({
+            Line: Item.Line,
+            Message: `Unclosed '${Item.Char}'`,
+            Severity: "error",
+        });
+    }
+
+    if (Language === "json" && Content.trim()) {
+        try {
+            JSON.parse(Content);
+        } catch (Thrown) {
+            const Message = Thrown instanceof globalThis.Error ? Thrown.message : "Invalid JSON";
+            const LineMatch = /position (\d+)/i.exec(Message);
+            const Offset = LineMatch ? Number(LineMatch[1]) : 0;
+            const Line = Content.slice(0, Offset).split("\n").length;
+            Diagnostics.push({ Line, Message: "Invalid JSON", Severity: "error" });
+        }
+    }
+
+    if (Language === "luau") {
+        const Blocks: Array<{ Word: string; Line: number }> = [];
+        Lines.forEach((Line, Index) => {
+            const Clean = Line.replace(/--.*$/, "");
+            const Words = Clean.match(/\b(function|if|do|for|while|repeat|end|until)\b/g) ?? [];
+            for (const Word of Words) {
+                if (Word === "do" && /\b(for|while)\b.*\bdo\b/.test(Clean)) continue;
+                if (Word === "end" || Word === "until") {
+                    Blocks.pop();
+                } else {
+                    Blocks.push({ Word, Line: Index + 1 });
+                }
+            }
+        });
+        for (const Block of Blocks.slice(-8)) {
+            Diagnostics.push({
+                Line: Block.Line,
+                Message: `Missing close for '${Block.Word}'`,
+                Severity: "warning",
+            });
+        }
+    }
+
+    return Diagnostics.slice(0, 80);
 }
 
 interface TabEntry {
@@ -129,12 +286,20 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
 }) => {
     const IsSearchOpen = UsePanel("Search");
     const [SearchTerm, SetSearchTerm] = useState("");
+    const [ReplaceTerm, SetReplaceTerm] = useState("");
     const [CursorLine, SetCursorLine] = useState(1);
-    const [, SetCursorCol] = useState(1);
+    const [CursorCol, SetCursorCol] = useState(1);
     const [IsFocused, SetIsFocused] = useState(false);
     const [TabDir, SetTabDir] = useState<"left" | "right" | "none">("none");
     const [CurrentMatchIndex, SetCurrentMatchIndex] = useState(0);
     const [ClosingTabs, SetClosingTabs] = useState<Set<string>>(new Set());
+    const [ShowUpdateLog, SetShowUpdateLog] = useState(false);
+    const [ClassicWelcome, SetClassicWelcome] = useState(() => GetClassicWelcome());
+    useEffect(() => {
+        const Handler = () => SetClassicWelcome(GetClassicWelcome());
+        window.addEventListener("nyx-settings-changed", Handler);
+        return () => window.removeEventListener("nyx-settings-changed", Handler);
+    }, []);
     const TextAreaRef       = useRef<HTMLTextAreaElement>(null);
     const LineNumbersRef    = useRef<HTMLDivElement>(null);
     const OverlayRef        = useRef<HTMLDivElement>(null);
@@ -145,6 +310,13 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     const PendingCursorRef  = useRef<{ Start: number; End: number } | null>(null);
     const [ScrollTopPx, SetScrollTopPx] = useState(0);
     const RafRef            = useRef<number | null>(null);
+    const ScrollFadeRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const CharWidthRef      = useRef(7);
+    const TokensPacketRef   = useRef<{ Tokens: Token[]; Start: number }>({ Tokens: [], Start: 0 });
+    const [CompletionItems,  SetCompletionItems]  = useState<CompletionItem[]>([]);
+    const [CompletionIndex,  SetCompletionIndex]  = useState(0);
+    const [CompletionPos,    SetCompletionPos]    = useState<{ Top: number; Left: number }>({ Top: 0, Left: 0 });
+    const CursorColRef      = useRef(1);
     const LineOffsetsRef    = useRef(new Int32Array(1));
     const ScrollTopPxRef    = useRef(0);
     const ActualScrollTopRef = useRef(0);
@@ -158,6 +330,27 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
 
     const Lines    = useMemo(() => FileContent.split("\n"), [FileContent]);
     const Language = useMemo(() => DetectLanguage(FileName), [FileName]);
+    const ActiveTabEntry = useMemo(
+        () => OpenTabs.find(T => T.Path === ActiveFile),
+        [OpenTabs, ActiveFile],
+    );
+    const DirtyLines = useMemo(
+        () => BuildDirtyLines(FileContent, ActiveTabEntry?.DiskContent),
+        [FileContent, ActiveTabEntry?.DiskContent],
+    );
+    const Diagnostics = useMemo(
+        () => BuildDiagnostics(FileContent, Language),
+        [FileContent, Language],
+    );
+    const DiagnosticsByLine = useMemo(() => {
+        const ResultMap = new Map<number, DiagnosticEntry[]>();
+        for (const Diagnostic of Diagnostics) {
+            const Existing = ResultMap.get(Diagnostic.Line) ?? [];
+            Existing.push(Diagnostic);
+            ResultMap.set(Diagnostic.Line, Existing);
+        }
+        return ResultMap;
+    }, [Diagnostics]);
     FileContentRef.current = FileContent;
     const [LH, SetLH] = useState(ComputeLH);
     LhRef.current = LH;
@@ -176,7 +369,8 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     const PreChars    = LineOffsets[VisStart] ?? 0;
     const VisEndChars = LineOffsets[Math.min(VisEnd, Lines.length)] ?? FileContent.length;
     const VisText                   = useMemo(() => FileContent.slice(PreChars, VisEndChars), [FileContent, PreChars, VisEndChars]);
-    const [VisTokens, SetVisTokens] = useState<Token[]>([]);
+    const [TokensPacket, SetTokensPacket] = useState<{ Tokens: Token[]; Start: number }>({ Tokens: [], Start: 0 });
+    TokensPacketRef.current = TokensPacket;
 
     const TotalHeight = Math.max(0, Lines.length * LH + 28);
 
@@ -238,6 +432,21 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         const Offsets = LineOffsets;
         return Matches.map(M => LineFromOffset(Offsets, M.Start) + 1);
     }, [Matches, LineOffsets]);
+
+    const DiagnosticLineNumbers = useMemo(
+        () => Array.from(new Set(Diagnostics.map(Diagnostic => Diagnostic.Line))),
+        [Diagnostics],
+    );
+
+    const DirtyLineNumbers = useMemo(
+        () => Array.from(DirtyLines),
+        [DirtyLines],
+    );
+
+    const Signature = useMemo<SignatureHelp | null>(() => {
+        const Offset = (LineOffsets[CursorLine - 1] ?? 0) + Math.max(CursorCol - 1, 0);
+        return GetSignatureHelp(FileContent, Offset, Language);
+    }, [FileContent, Language, LineOffsets, CursorLine, CursorCol]);
 
     const SearchHighlights = useMemo((): React.ReactNode => {
         if (!SearchTerm || Matches.length === 0) return null;
@@ -308,10 +517,55 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         JumpToMatch((CurrentMatchIndex - 1 + Matches.length) % Matches.length);
     }, [Matches.length, CurrentMatchIndex, JumpToMatch]);
 
+    const HandleReplaceCurrent = useCallback(() => {
+        const Textarea = TextAreaRef.current;
+        if (!Textarea || Matches.length === 0) return;
+
+        const Match = Matches[CurrentMatchIndex] ?? Matches[0];
+        const Text = Textarea.value;
+        const NewText = Text.slice(0, Match.Start) + ReplaceTerm + Text.slice(Match.Start + Match.Len);
+        const CursorPos = Match.Start + ReplaceTerm.length;
+        Textarea.value = NewText;
+        OnContentChange(NewText);
+        PendingCursorRef.current = { Start: CursorPos, End: CursorPos };
+        SetCurrentMatchIndex(Math.min(CurrentMatchIndex, Math.max(Matches.length - 2, 0)));
+    }, [Matches, CurrentMatchIndex, ReplaceTerm, OnContentChange]);
+
+    const HandleReplaceAll = useCallback(() => {
+        const Textarea = TextAreaRef.current;
+        if (!Textarea || !SearchTerm) return;
+
+        const Text = Textarea.value;
+        const SearchLower = SearchTerm.toLowerCase();
+        const TextLower = Text.toLowerCase();
+        let Pos = 0;
+        let Last = 0;
+        let Changed = false;
+        const Parts: string[] = [];
+
+        while (Pos <= Text.length - SearchTerm.length) {
+            const Found = TextLower.indexOf(SearchLower, Pos);
+            if (Found === -1) break;
+            Parts.push(Text.slice(Last, Found), ReplaceTerm);
+            Pos = Found + SearchTerm.length;
+            Last = Pos;
+            Changed = true;
+        }
+
+        if (!Changed) return;
+        Parts.push(Text.slice(Last));
+        const NewText = Parts.join("");
+        Textarea.value = NewText;
+        OnContentChange(NewText);
+        PendingCursorRef.current = { Start: 0, End: 0 };
+        SetCurrentMatchIndex(0);
+    }, [SearchTerm, ReplaceTerm, OnContentChange]);
+
     const HandleSearchClose = useCallback(() => {
         UILib.Hide("Search");
         UILib.SetView("explorer");
         SetSearchTerm("");
+        SetReplaceTerm("");
     }, []);
 
     useEffect(() => {
@@ -345,6 +599,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         }
         SyncScrollPanels(0, 0);
         OnCursorChangeRef.current?.(1, 1);
+        SetCompletionItems([]);
     }, [ActiveFile, SyncScrollPanels]);
 
     useEffect(() => {
@@ -378,8 +633,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         Textarea.setSelectionRange(Start, End);
         UpdateCursorFromTextarea(Textarea);
     }, [ActiveFile, FileContent, ExternalContentVersion]);
-
-    // Cursor position via O(log n) binary search on LineOffsets
     function UpdateCursorFromTextarea(Textarea: HTMLTextAreaElement) {
         const Pos     = Textarea.selectionDirection === "backward"
             ? Textarea.selectionStart
@@ -397,6 +650,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             ColNum  = LastNewline === -1 ? Pos + 1 : Pos - LastNewline;
         }
         CursorLineRef.current = LineNum;
+        CursorColRef.current  = ColNum;
         if (EditorWrapperRef.current) {
             EditorWrapperRef.current.style.setProperty("--cursor-top", `${14 + (LineNum - 1) * LhRef.current - ActualScrollTopRef.current}px`);
         }
@@ -411,10 +665,51 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         UpdateCursorFromTextarea(Textarea);
     }, []);
 
+    const DismissCompletions = useCallback(() => {
+        SetCompletionItems([]);
+    }, []);
+
+    const UpdateCompletions = useCallback((Text: string, Offset: number, Lang: string) => {
+        if (Offset !== TextAreaRef.current?.selectionStart) return; // stale
+        const Items = GetCompletions(Text, Offset, Lang, TokensPacketRef.current.Tokens);
+        SetCompletionItems(Items);
+        SetCompletionIndex(0);
+        if (Items.length > 0) {
+            const LineStart = Text.lastIndexOf("\n", Offset - 1) + 1;
+            const Col       = Offset - LineStart;
+            const { Prefix } = GetWordContext(Text, Offset);
+            const Top  = 14 + CursorLineRef.current * LhRef.current - ActualScrollTopRef.current;
+            const Left = 46 + 20 + (Col - Prefix.length) * CharWidthRef.current;
+            SetCompletionPos({ Top, Left });
+        }
+    }, []);
+
+    const AcceptCompletion = useCallback((Item: CompletionItem) => {
+        const Textarea = TextAreaRef.current;
+        if (!Textarea) return;
+        const Text   = Textarea.value;
+        const Offset = Textarea.selectionStart;
+        const { Start } = GetWordContext(Text, Offset);
+        const NewText   = Text.slice(0, Start) + Item.Insert + Text.slice(Offset);
+        const CursorPos = Start + (Item.CursorAt ?? Item.Insert.length);
+        Textarea.value  = NewText;
+        OnContentChange(NewText);
+        PendingCursorRef.current = { Start: CursorPos, End: CursorPos };
+        SetCompletionItems([]);
+    }, [OnContentChange]);
+
     const HandleTextAreaChange = useCallback((E: React.ChangeEvent<HTMLTextAreaElement>) => {
         OnContentChange(E.target.value);
         UpdateCursorFromTextarea(E.target);
-    }, [OnContentChange]);
+        const Offset = E.target.selectionStart;
+        const Text   = E.target.value;
+        const Char   = Text[Offset - 1] ?? "";
+        if (/[A-Za-z0-9_$.:]/.test(Char)) {
+            UpdateCompletions(Text, Offset, Language);
+        } else {
+            DismissCompletions();
+        }
+    }, [OnContentChange, Language, UpdateCompletions, DismissCompletions]);
 
     const HandleKeyDown = useCallback((E: React.KeyboardEvent<HTMLTextAreaElement>) => {
         const Textarea = TextAreaRef.current;
@@ -423,6 +718,35 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         const Text  = Textarea.value;
         const Start = Textarea.selectionStart;
         const End   = Textarea.selectionEnd;
+        if (CompletionItems.length > 0) {
+            if (E.key === "ArrowDown") {
+                E.preventDefault();
+                SetCompletionIndex(I => (I + 1) % CompletionItems.length);
+                return;
+            }
+            if (E.key === "ArrowUp") {
+                E.preventDefault();
+                SetCompletionIndex(I => (I - 1 + CompletionItems.length) % CompletionItems.length);
+                return;
+            }
+            if (E.key === "Tab" || (E.key === "Enter" && !E.shiftKey)) {
+                E.preventDefault();
+                AcceptCompletion(CompletionItems[CompletionIndex]);
+                return;
+            }
+            if (E.key === "Escape") {
+                E.preventDefault();
+                DismissCompletions();
+                return;
+            }
+            if (E.key === "ArrowLeft" || E.key === "ArrowRight" ||
+                E.key === " " || E.key === "." || E.key === "(" ||
+                E.key === ")" || E.key === "{" || E.key === "}" ||
+                E.key === "[" || E.key === "]" || E.key === ";" ||
+                E.key === "," || E.key === ":" || E.key === "\n") {
+                DismissCompletions();
+            }
+        }
 
         if (E.key === 'Escape' && IsSearchOpen) {
             HandleSearchClose();
@@ -732,7 +1056,8 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         }
 
         UpdateCursor();
-    }, [UpdateCursor, OnContentChange, Language, IsSearchOpen, HandleSearchClose]);
+    }, [UpdateCursor, OnContentChange, Language, IsSearchOpen, HandleSearchClose,
+        CompletionItems, CompletionIndex, AcceptCompletion, DismissCompletions]);
 
     const HandleMouseUp = useCallback(() => {
         const Textarea = TextAreaRef.current;
@@ -762,6 +1087,13 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         const Textarea = TextAreaRef.current;
         if (!Textarea) return;
 
+        Textarea.classList.add(styles.Scrolling);
+        if (ScrollFadeRef.current !== null) clearTimeout(ScrollFadeRef.current);
+        ScrollFadeRef.current = setTimeout(() => {
+            ScrollFadeRef.current = null;
+            TextAreaRef.current?.classList.remove(styles.Scrolling);
+        }, 800);
+
         const NewScrollTop = Textarea.scrollTop;
         ActualScrollTopRef.current = NewScrollTop;
 
@@ -782,9 +1114,13 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         if (LhRef.current > 0) {
             const OldLine = Math.floor((ScrollTopPxRef.current - 14) / LhRef.current);
             const NewLine = Math.floor((NewScrollTop - 14) / LhRef.current);
-            if (NewLine !== OldLine) {
-                ScrollTopPxRef.current = NewScrollTop;
-                SetScrollTopPx(NewScrollTop);
+            if (NewLine !== OldLine && RafRef.current === null) {
+                RafRef.current = requestAnimationFrame(() => {
+                    RafRef.current = null;
+                    const Latest = ActualScrollTopRef.current;
+                    ScrollTopPxRef.current = Latest;
+                    SetScrollTopPx(Latest);
+                });
             }
         }
     }, []);
@@ -794,19 +1130,12 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 try { cancelAnimationFrame(RafRef.current); } catch (e) {}
                 RafRef.current = null;
             }
+            if (ScrollFadeRef.current !== null) {
+                clearTimeout(ScrollFadeRef.current);
+                ScrollFadeRef.current = null;
+            }
         };
     }, []);
-    useEffect(() => {
-        if (LineNumbersRef.current) {
-            LineNumbersRef.current.scrollTop = ScrollTopPx;
-        }
-        if (OverlayRef.current) {
-            OverlayRef.current.scrollTop = ScrollTopPx;
-        }
-        if (SearchOverlayRef.current) {
-            SearchOverlayRef.current.scrollTop = ScrollTopPx;
-        }
-    }, [ScrollTopPx]);
     useEffect(() => {
         const Observer = new MutationObserver(() => SetLH(ComputeLH()));
         Observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
@@ -815,9 +1144,9 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     useEffect(() => {
         const W = new Worker(new URL('../services/Tokenizer.worker.ts', import.meta.url), { type: 'module' });
         WorkerRef.current = W;
-        W.onmessage = (E: MessageEvent<{ Version: number; Tokens: Token[] }>) => {
+        W.onmessage = (E: MessageEvent<{ Version: number; Tokens: Token[]; VisStart: number }>) => {
             if (E.data.Version !== WorkerVersionRef.current) return;
-            SetVisTokens(E.data.Tokens);
+            SetTokensPacket({ Tokens: E.data.Tokens, Start: E.data.VisStart });
         };
         return () => {
             W.terminate();
@@ -827,11 +1156,29 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     useEffect(() => {
         if (!WorkerRef.current) return;
         WorkerVersionRef.current++;
-        WorkerRef.current.postMessage({ Version: WorkerVersionRef.current, Text: VisText, Lang: Language });
+        WorkerRef.current.postMessage({ Version: WorkerVersionRef.current, Text: VisText, Lang: Language, VisStart });
     }, [VisText, Language]);
 
     useEffect(() => {
         if (TextAreaRef.current) TextAreaRef.current.focus();
+    }, []);
+
+    // measure monospace char width once fonts are ready
+    useEffect(() => {
+        const Measure = () => {
+            const C = document.createElement("canvas");
+            const X = C.getContext("2d");
+            if (!X) return;
+            const Fs = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--editor-font-size")) || 11.5;
+            X.font = `400 ${Fs}px 'JetBrains Mono', monospace`;
+            const W = X.measureText("x").width;
+            if (W > 0) CharWidthRef.current = W;
+        };
+        if (document.fonts?.ready) {
+            document.fonts.ready.then(Measure);
+        } else {
+            Measure();
+        }
     }, []);
 
     useEffect(() => {
@@ -865,7 +1212,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         return styles.FadeIn;
     })();
 
-    const ActiveTabIsViewport = OpenTabs.find(T => T.Path === ActiveFile)?.Type === 'viewport';
+    const ActiveTabIsViewport = ActiveTabEntry?.Type === 'viewport';
 
     return (
         <div className={`${styles.Container} ${IsFocused ? styles.Focused : ""}`}>
@@ -902,7 +1249,27 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                     );
                 })}
             </div>
-            {ActiveTabIsViewport ? (
+            {OpenTabs.length === 0 && !ActiveFile && !ClassicWelcome ? (
+                <div className={styles.WelcomePanel}>
+                    <div className={styles.WelcomeHeader}>
+                        <span className={styles.WelcomeTitle}>Welcome to Nyx</span>
+                        <span className={styles.WelcomeVersion}>v0.2.2</span>
+                    </div>
+                    <div className={styles.WelcomeDivider} />
+                    <div className={styles.WelcomeChangelog}>
+                        <div className={styles.WelcomeChangelogLabel}>What's New</div>
+                        <PatchNotesList />
+                    </div>
+                    <div className={styles.WelcomeDivider} />
+                    <div className={styles.WelcomeChangelog}>
+                        <div className={styles.WelcomeChangelogLabel}>Coming Up</div>
+                        <RoadmapList />
+                    </div>
+                    <button className={styles.ViewLogBtn} onClick={() => SetShowUpdateLog(true)}>
+                        View full update log
+                    </button>
+                </div>
+            ) : ActiveTabIsViewport ? (
                 <div className={styles.ViewportContainer}>
                     {ViewportContent}
                 </div>
@@ -916,11 +1283,15 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                     {IsSearchOpen && (
                         <SearchBar
                             Term={SearchTerm}
+                            ReplaceTerm={ReplaceTerm}
                             OnTermChange={SetSearchTerm}
+                            OnReplaceTermChange={SetReplaceTerm}
                             MatchCount={Matches.length}
                             CurrentMatch={CurrentMatchIndex}
                             OnPrev={HandleSearchPrev}
                             OnNext={HandleSearchNext}
+                            OnReplace={HandleReplaceCurrent}
+                            OnReplaceAll={HandleReplaceAll}
                             OnClose={HandleSearchClose}
                         />
                     )}
@@ -945,26 +1316,69 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                         >
                             <div className={styles.LineNumberCursor} aria-hidden />
                             <div style={{ height: `${VisStart * LH}px` }} aria-hidden />
-                            {Lines.slice(VisStart, VisEnd).map((_, I) => (
-                                <div
-                                    key={VisStart + I}
-                                    className={`${styles.LineNum} ${VisStart + I + 1 === CursorLine ? styles.ActiveLine : ""}`}
-                                    onClick={() => HandleLineNumberClick(VisStart + I)}
-                                >
-                                    {VisStart + I + 1}
-                                </div>
-                            ))}
+                            {Lines.slice(VisStart, VisEnd).map((_, I) => {
+                                const LineNumber = VisStart + I + 1;
+                                const LineDiagnostics = DiagnosticsByLine.get(LineNumber) ?? [];
+                                const HasError = LineDiagnostics.some(Diagnostic => Diagnostic.Severity === "error");
+                                const HasWarning = LineDiagnostics.length > 0 && !HasError;
+                                const IsDirty = DirtyLines.has(LineNumber);
+                                const Title = LineDiagnostics.map(Diagnostic => Diagnostic.Message).join("\n") || undefined;
+                                return (
+                                    <div
+                                        key={VisStart + I}
+                                        className={`${styles.LineNum} ${LineNumber === CursorLine ? styles.ActiveLine : ""} ${IsDirty ? styles.DirtyLine : ""} ${HasError ? styles.ErrorLine : ""} ${HasWarning ? styles.WarningLine : ""}`}
+                                        onClick={() => HandleLineNumberClick(VisStart + I)}
+                                        title={Title}
+                                    >
+                                        {IsDirty && <span className={styles.DirtyMarker} aria-hidden />}
+                                        {LineDiagnostics.length > 0 && <span className={styles.DiagnosticMarker} aria-hidden />}
+                                        {LineNumber}
+                                    </div>
+                                );
+                            })}
                             <div style={{ height: `${(Lines.length - VisEnd) * LH}px` }} aria-hidden />
                         </div>
                         <div className={styles.CodeArea}>
                             <HighlightOverlay
-                                Tokens={VisTokens}
+                                Tokens={TokensPacket.Tokens}
                                 ClassName={styles.Overlay}
                                 ScrollRef={OverlayRef}
                                 TotalHeight={TotalHeight}
-                                VisStart={VisStart}
+                                VisStart={TokensPacket.Start}
                                 LH={LH}
                             />
+                            {CompletionItems.length > 0 && (
+                                <CompletionPopup
+                                    Items={CompletionItems}
+                                    SelectedIndex={CompletionIndex}
+                                    Top={CompletionPos.Top}
+                                    Left={CompletionPos.Left}
+                                    MaxTop={EditorWrapperRef.current?.clientHeight ?? 600}
+                                    ItemHeight={LH}
+                                    OnSelect={AcceptCompletion}
+                                />
+                            )}
+                            {Signature && CompletionItems.length === 0 && (
+                                <div
+                                    className={styles.SignatureHelp}
+                                    style={{
+                                        top: 14 + CursorLineRef.current * LhRef.current - ActualScrollTopRef.current,
+                                        left: 46 + 20 + Math.max(CursorColRef.current - 1, 0) * CharWidthRef.current,
+                                    }}
+                                >
+                                    <span className={styles.SignatureName}>{Signature.Label}</span>
+                                    <span className={styles.SignatureParams}>
+                                        {Signature.Parameters.map((Param, I) => (
+                                            <span
+                                                key={`${Param}_${I}`}
+                                                className={I === Signature.ActiveParameter ? styles.SignatureParamActive : styles.SignatureParam}
+                                            >
+                                                {Param}
+                                            </span>
+                                        ))}
+                                    </span>
+                                </div>
+                            )}
                             <textarea
                                 ref={TextAreaRef}
                                 className={styles.TextArea}
@@ -986,8 +1400,23 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                                 </div>
                             )}
                         </div>
-                            {IsSearchOpen && MatchLineNumbers.length > 0 && (
+                        {(MatchLineNumbers.length > 0 || DiagnosticLineNumbers.length > 0 || DirtyLineNumbers.length > 0) && (
                             <div className={styles.SearchScrollTrack}>
+                                {DirtyLineNumbers.map((Line, I) => (
+                                    <div
+                                        key={`d${I}`}
+                                        className={styles.DirtyScrollDot}
+                                        style={{ top: `${((Line - 1) / Math.max(Lines.length - 1, 1)) * 100}%` }}
+                                    />
+                                ))}
+                                {DiagnosticLineNumbers.map((Line, I) => (
+                                    <div
+                                        key={`x${I}`}
+                                        className={styles.DiagnosticScrollDot}
+                                        style={{ top: `${((Line - 1) / Math.max(Lines.length - 1, 1)) * 100}%` }}
+                                        title={(DiagnosticsByLine.get(Line) ?? []).map(Diagnostic => Diagnostic.Message).join("\n")}
+                                    />
+                                ))}
                                 {MatchLineNumbers.map((Line, I) => (
                                     <div
                                         key={I}
@@ -1007,6 +1436,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                     </div>
                 </>
             )}
+            <UpdateLogPanel IsOpen={ShowUpdateLog} OnClose={() => SetShowUpdateLog(false)} />
         </div>
     );
 };

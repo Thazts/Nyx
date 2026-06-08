@@ -1,0 +1,103 @@
+.List {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.Block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+@keyframes RowEnter {
+    from { opacity: 0; transform: translateX(-5px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes TextSweep {
+    from { clip-path: inset(0 100% 0 0); }
+    to   { clip-path: inset(0 0% 0 0); }
+}
+
+.BlockHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: RowEnter 0.28s var(--spring) calc(var(--i, 0) * 45ms) both;
+}
+
+.BlockVersion {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--txt);
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.04em;
+}
+
+.BlockDate {
+    font-size: 10px;
+    color: var(--txt3);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.BlockUnix {
+    font-size: 9.5px;
+    color: var(--txt3);
+    font-family: 'JetBrains Mono', monospace;
+    opacity: 0.55;
+}
+
+.Changes {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.Change {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    animation: RowEnter 0.28s var(--spring) calc(var(--i, 0) * 45ms) both;
+}
+
+.Tag {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.5;
+}
+
+.Tag_new {
+    background: rgba(170, 205, 180, 0.12);
+    color: var(--str);
+}
+
+.Tag_fix {
+    background: rgba(212, 176, 204, 0.12);
+    color: var(--acc);
+}
+
+.Tag_change {
+    background: rgba(181, 200, 232, 0.12);
+    color: var(--fn);
+}
+
+.Tag_perf {
+    background: rgba(232, 200, 162, 0.12);
+    color: var(--num);
+}
+
+.ChangeText {
+    font-size: 11.5px;
+    color: var(--txt2);
+    font-family: 'Syne', sans-serif;
+    line-height: 1.5;
+    animation: TextSweep 0.22s ease-out calc(var(--i, 0) * 45ms + 15ms) both;
+}
