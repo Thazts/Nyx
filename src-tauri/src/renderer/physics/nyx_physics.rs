@@ -169,8 +169,6 @@ impl NyxPhysics {
             let Material = self.MaterialFor(&MaterialName);
             let Size =
                 ReadVec3(Command.get("Size"), Vec3::new(4.0, 1.2, 2.0)).max(Vec3::splat(0.001));
-            let Position = ReadPosition(Command);
-            let Rotation = ReadRotation(Command);
             let Anchored = ReadBool(Command.get("Anchored"), false);
             let CanCollide = ReadBool(Command.get("CanCollide"), true);
             let Massless = ReadBool(Command.get("Massless"), false);
@@ -193,6 +191,16 @@ impl NyxPhysics {
             let InvMass = if Anchored { 0.0 } else { 1.0 / Mass };
 
             let PreviousBody = Previous.get(&Id);
+            let Position = if !Anchored {
+                PreviousBody.map(|B| B.Position).unwrap_or_else(|| ReadPosition(Command))
+            } else {
+                ReadPosition(Command)
+            };
+            let Rotation = if !Anchored {
+                PreviousBody.map(|B| B.Rotation).unwrap_or_else(|| ReadRotation(Command))
+            } else {
+                ReadRotation(Command)
+            };
             let Velocity = ReadVec3Any(
                 Command,
                 &["AssemblyLinearVelocity", "Velocity", "LinearVelocity"],

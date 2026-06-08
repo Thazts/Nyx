@@ -328,4 +328,27 @@
 .SwatchAmber    { background: #D4B87A; }
 .SwatchBlue     { background: #A0B8D8; }
 .SwatchLavender { background: #B8A0D8; }
+
+.RateLimitGroup {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.RateLimitBtn {
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    font-size: 10px;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.RateLimitBtn:hover { color: var(--txt2); background: rgba(255,255,255,0.04); }
+.RateLimitBtnActive {
+    color: var(--acc) !important;
+    border-color: var(--acc) !important;
+    background: rgba(212,176,204,0.10) !important;
+}
 .SwatchSage     { background: #A0C4A4; }

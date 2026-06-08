@@ -32,7 +32,13 @@
     "externalBin": [
       "extra-bin/nyx-keyman",
        "extra-bin/NyxCli"
-     ]
+     ],
+    "resources": [
+      "skills/FengshuiProtocol.md",
+      "skills/SelfHelp.md",
+      "skills/LuaLuau.md",
+      "skills/ViewportManual.md"
+    ]
     },
     "security": {
       "csp": null

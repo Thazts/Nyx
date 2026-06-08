@@ -33,6 +33,7 @@ export const ViewportTab: React.FC = () => {
         return () => {
             RO.disconnect();
             window.removeEventListener("resize", ReportBounds);
+            RendererService.LoadScene({ Commands: [], Profile: "roblox" }).catch(() => {});
             RendererService.SetVisible({ Visible: false });
             StateService.Set({ Key: "ViewportActive", Value: false });
         };

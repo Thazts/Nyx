@@ -234,7 +234,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         return Deduped;
     }, [FileContent, SearchTerm, Lines.length]);
 
-    // O(matches * log n) instead of O(matches * n)
     const MatchLineNumbers = useMemo(() => {
         const Offsets = LineOffsets;
         return Matches.map(M => LineFromOffset(Offsets, M.Start) + 1);
@@ -741,11 +740,9 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     }, []);
 
     const HandleTextAreaMouseDown = useCallback(() => {
-        // Let browser handle clicks natively
     }, []);
 
     const HandleTextAreaMouseMove = useCallback(() => {
-        // Let browser handle drag natively
     }, []);
 
     const HandleLineNumberClick = useCallback((LineIndex: number) => {
@@ -779,8 +776,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             SearchOverlayRef.current.scrollTop  = NewScrollTop;
             SearchOverlayRef.current.scrollLeft = Textarea.scrollLeft;
         }
-
-        // Update cursor position CSS
         if (EditorWrapperRef.current && LhRef.current > 0) {
             EditorWrapperRef.current.style.setProperty("--cursor-top", `${14 + (CursorLineRef.current - 1) * LhRef.current - NewScrollTop}px`);
         }
@@ -801,8 +796,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             }
         };
     }, []);
-
-    // Sync overlays when virtual window changes
     useEffect(() => {
         if (LineNumbersRef.current) {
             LineNumbersRef.current.scrollTop = ScrollTopPx;
@@ -814,15 +807,11 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             SearchOverlayRef.current.scrollTop = ScrollTopPx;
         }
     }, [ScrollTopPx]);
-
-    // Recompute LH when font-size or line-height settings change (style attr on <html>)
     useEffect(() => {
         const Observer = new MutationObserver(() => SetLH(ComputeLH()));
         Observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
         return () => Observer.disconnect();
     }, []);
-
-    // Worker lifecycle — create once, terminate on unmount
     useEffect(() => {
         const W = new Worker(new URL('../services/Tokenizer.worker.ts', import.meta.url), { type: 'module' });
         WorkerRef.current = W;
@@ -835,8 +824,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             WorkerRef.current = null;
         };
     }, []);
-
-    // Dispatch tokenisation to worker whenever the visible text or language changes
     useEffect(() => {
         if (!WorkerRef.current) return;
         WorkerVersionRef.current++;

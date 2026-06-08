@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/tauri";
 
-export type AiProvider = "anthropic" | "deepseek";
+export type AiProvider = "anthropic" | "deepseek" | "openai";
 export type AiMode = "supervised" | "autonomous" | "agentic";
 
 export interface AiMessage {
@@ -11,12 +11,16 @@ export interface AiMessage {
 export interface AiConfigStatus {
     AnthropicKeySet: boolean;
     DeepseekKeySet:  boolean;
+    OpenaiKeySet:    boolean;
 }
 
+export type RateLimitMode = "ask" | "always_continue" | "always_cancel";
+
 export interface AppSettings {
-    DefaultProvider:    AiProvider;
-    ObsidianVaultPath:  string | null;
-    AiMode:             AiMode;
+    DefaultProvider:          AiProvider;
+    ObsidianVaultPath:        string | null;
+    AiMode:                   AiMode;
+    RateLimitAutoContinue:    RateLimitMode;
 }
 
 export interface AiQuestionOption {
@@ -44,9 +48,10 @@ export interface AiQuestionAnswer {
 
 export const AiService = {
     GetConfig: () =>
-        invoke<{ anthropic_key_set: boolean; deepseek_key_set: boolean }>("ai_get_config").then(R => ({
+        invoke<{ anthropic_key_set: boolean; deepseek_key_set: boolean; openai_key_set: boolean }>("ai_get_config").then(R => ({
             AnthropicKeySet: R.anthropic_key_set,
             DeepseekKeySet:  R.deepseek_key_set,
+            OpenaiKeySet:    R.openai_key_set,
         })),
 
     LaunchKeyman: () => invoke<void>("ai_launch_keyman"),
@@ -55,26 +60,34 @@ export const AiService = {
         invoke<void>("ai_launch_nyx_cli", { workspace: Workspace }),
 
     GetAppSettings: () =>
-        invoke<{ default_provider: string; obsidian_vault_path: string | null; ai_mode: string }>(
+        invoke<{ default_provider: string; obsidian_vault_path: string | null; ai_mode: string; rate_limit_auto_continue: boolean | null }>(
             "get_app_settings"
         ).then(R => ({
-            DefaultProvider:   R.default_provider as AiProvider,
-            ObsidianVaultPath: R.obsidian_vault_path,
-            AiMode:            (R.ai_mode || "supervised") as AiMode,
+            DefaultProvider:       R.default_provider as AiProvider,
+            ObsidianVaultPath:     R.obsidian_vault_path,
+            AiMode:                (R.ai_mode || "supervised") as AiMode,
+            RateLimitAutoContinue: R.rate_limit_auto_continue === true ? "always_continue"
+                                 : R.rate_limit_auto_continue === false ? "always_cancel"
+                                 : "ask" as RateLimitMode,
         })),
 
     SaveAppSettings: async (S: Partial<AppSettings>) => {
         const Current = await AiService.GetAppSettings().catch(() => ({
-            DefaultProvider:   "anthropic" as AiProvider,
-            ObsidianVaultPath: null,
-            AiMode:            "supervised" as AiMode,
+            DefaultProvider:       "anthropic" as AiProvider,
+            ObsidianVaultPath:     null,
+            AiMode:                "supervised" as AiMode,
+            RateLimitAutoContinue: "ask" as RateLimitMode,
         }));
 
+        const Mode = S.RateLimitAutoContinue ?? Current.RateLimitAutoContinue;
         return invoke<void>("save_app_settings", {
             settings: {
-                default_provider:    S.DefaultProvider ?? Current.DefaultProvider,
-                obsidian_vault_path: S.ObsidianVaultPath !== undefined ? S.ObsidianVaultPath : Current.ObsidianVaultPath,
-                ai_mode:             S.AiMode ?? Current.AiMode,
+                default_provider:          S.DefaultProvider ?? Current.DefaultProvider,
+                obsidian_vault_path:       S.ObsidianVaultPath !== undefined ? S.ObsidianVaultPath : Current.ObsidianVaultPath,
+                ai_mode:                   S.AiMode ?? Current.AiMode,
+                rate_limit_auto_continue:  Mode === "always_continue" ? true
+                                         : Mode === "always_cancel"   ? false
+                                         : null,
             },
         });
     },
@@ -84,12 +97,14 @@ export const AiService = {
         Messages:  AiMessage[],
         Workspace: string | null,
         Mode:      AiMode,
+        Skills:    string[],
     ) =>
         invoke<void>("ai_start_agent", {
             provider:  Provider,
             messages:  Messages.map(M => ({ role: M.Role, content: M.Content })),
             workspace: Workspace,
             mode:      Mode,
+            skills:    Skills,
         }),
 
     RespondToTool: (Approve: boolean) =>
@@ -97,4 +112,7 @@ export const AiService = {
 
     RespondToQuestion: (Answers: AiQuestionAnswer[]) =>
         invoke<void>("ai_question_respond", { response: { Answers } }),
+
+    RespondToRateLimit: (Approved: boolean) =>
+        invoke<void>("ai_rate_limit_respond", { approved: Approved }),
 };

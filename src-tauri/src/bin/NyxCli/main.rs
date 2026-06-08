@@ -30,12 +30,16 @@ use zeroize::Zeroizing;
 #[path = "../../commands/agent.rs"]
 mod agent;
 #[allow(dead_code)]
+#[path = "../../skills/mod.rs"]
+mod skills;
+#[allow(dead_code)]
 #[path = "../../agent_runtime/mod.rs"]
 mod agent_runtime;
 
 const KEYRING_SERVICE: &str = "nyx-ide";
 const KEYRING_ANTHROPIC: &str = "anthropic";
 const KEYRING_DEEPSEEK: &str = "deepseek";
+const KEYRING_OPENAI: &str = "openai";
 
 #[derive(Clone)]
 struct CliOptions {
@@ -136,11 +140,11 @@ async fn AsyncMain() -> Result<(), String> {
     let settings = LoadAppSettings();
     let options = ParseArgs(&settings)?;
 
-    let (model, is_anthropic) = ProviderModel(&options.provider)?;
+    let (model, _) = ProviderModel(&options.provider)?;
     let ApiKey = ProviderKey(&options.provider);
     let ToolSettings = BuildToolSettings(&settings, options.workspace.clone())?;
     let mode = agent::AgentMode::FromStr(&options.mode);
-    let system = agent::BuildSystemPrompt(options.workspace.as_deref(), &mode);
+    let system = agent::BuildSystemPrompt(options.workspace.as_deref(), &mode, &[], &options.provider);
     let mut messages: Vec<Value> = Vec::new();
 
     let mut header = CliHeader {
@@ -171,7 +175,7 @@ async fn AsyncMain() -> Result<(), String> {
                 &system,
                 key.as_str(),
                 &model,
-                is_anthropic,
+                &options.provider,
                 &ToolSettings,
                 &mode,
             )
@@ -213,7 +217,7 @@ async fn AsyncMain() -> Result<(), String> {
             &system,
             key.as_str(),
             &model,
-            is_anthropic,
+            &options.provider,
             &ToolSettings,
             &mode,
         )
@@ -267,9 +271,9 @@ fn ParseArgs(settings: &AppSettings) -> Result<CliOptions, String> {
         }
     }
 
-    if provider != "anthropic" && provider != "deepseek" {
+    if !matches!(provider.as_str(), "anthropic" | "deepseek" | "openai") {
         return Err(format!(
-            "Unknown provider '{provider}'. Use anthropic or deepseek."
+            "Unknown provider '{provider}'. Use anthropic, deepseek, or openai."
         ));
     }
     if mode != "supervised" && mode != "autonomous" && mode != "agentic" {
@@ -297,7 +301,7 @@ fn PrintHelp() {
     println!("NyxCli");
     println!();
     println!("Usage:");
-    println!("  NyxCli [--workspace PATH] [--provider anthropic|deepseek] [--mode supervised|autonomous|agentic] [--context-limit TOKENS] [prompt]");
+    println!("  NyxCli [--workspace PATH] [--provider anthropic|deepseek|openai] [--mode supervised|autonomous|agentic] [--context-limit TOKENS] [prompt]");
     println!();
     println!("Commands:");
     for command in COMMANDS {
@@ -546,8 +550,9 @@ fn RenderPromptInput(input: &str, selected: usize, RenderedLines: &mut u16) -> R
 
 async fn FetchTopUpStatus(provider: &str, ApiKey: &str) -> String {
     match provider {
-        "deepseek" => FetchDeepseekBalance(ApiKey).await,
+        "deepseek"  => FetchDeepseekBalance(ApiKey).await,
         "anthropic" => "Console billing page".to_string(),
+        "openai"    => "platform.openai.com/usage".to_string(),
         _ => "unavailable".to_string(),
     }
 }
@@ -885,7 +890,8 @@ fn LoadAppSettings() -> AppSettings {
 fn ProviderModel(provider: &str) -> Result<(String, bool), String> {
     match provider {
         "anthropic" => Ok(("claude-sonnet-4-6".to_string(), true)),
-        "deepseek" => Ok(("deepseek-chat".to_string(), false)),
+        "deepseek"  => Ok(("deepseek-chat".to_string(), false)),
+        "openai"    => Ok(("gpt-4o".to_string(), false)),
         _ => Err(format!("Unknown provider: {provider}")),
     }
 }
@@ -893,19 +899,17 @@ fn ProviderModel(provider: &str) -> Result<(String, bool), String> {
 fn ProviderKey(provider: &str) -> Option<Zeroizing<String>> {
     match provider {
         "anthropic" => GetKeyringPassword(KEYRING_ANTHROPIC),
-        "deepseek" => GetKeyringPassword(KEYRING_DEEPSEEK),
+        "deepseek"  => GetKeyringPassword(KEYRING_DEEPSEEK),
+        "openai"    => GetKeyringPassword(KEYRING_OPENAI),
         _ => None,
     }
 }
 
 fn MissingKeyMessage(provider: &str) -> String {
     match provider {
-        "anthropic" => {
-            "Anthropic API key is not configured. Configure it in Nyx settings.".to_string()
-        }
-        "deepseek" => {
-            "DeepSeek API key is not configured. Configure it in Nyx settings.".to_string()
-        }
+        "anthropic" => "Anthropic API key is not configured. Configure it in Nyx settings.".to_string(),
+        "deepseek"  => "DeepSeek API key is not configured. Configure it in Nyx settings.".to_string(),
+        "openai"    => "OpenAI API key is not configured. Configure it in Nyx settings.".to_string(),
         _ => format!("{provider} API key is not configured."),
     }
 }
@@ -1352,10 +1356,11 @@ async fn RunPrompt(
     system: &str,
     ApiKey: &str,
     model: &str,
-    is_anthropic: bool,
+    provider: &str,
     tool_settings: &agent::ToolSettings,
     mode: &agent::AgentMode,
 ) -> Result<(), String> {
+    let is_anthropic = provider == "anthropic";
     messages.push(json!({ "role": "user", "content": prompt }));
     AnimateStatus("Thinking", 5)?;
 
@@ -1374,6 +1379,8 @@ async fn RunPrompt(
         )?;
         let (tool_calls, assistant_message) = if is_anthropic {
             StreamAnthropic(ApiKey, model, messages, system).await?
+        } else if provider == "openai" {
+            StreamOpenai(ApiKey, model, messages).await?
         } else {
             StreamDeepseek(ApiKey, model, messages).await?
         };
@@ -2042,6 +2049,96 @@ async fn StreamDeepseek(
         let status = response.status();
         let Text = response.text().await.unwrap_or_default();
         return Err(format!("DeepSeek API error {status}: {Text}"));
+    }
+
+    let mut content = String::new();
+    let mut ToolCalls: BTreeMap<u64, OpenAiToolAccumulator> = BTreeMap::new();
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut renderer = MarkdownStreamRenderer::new();
+
+    while let Some(chunk) = stream.next().await {
+        let Text = String::from_utf8_lossy(&chunk.map_err(|error| error.to_string())?).to_string();
+        buffer.push_str(&Text);
+
+        while let Some(pos) = buffer.find('\n') {
+            let line = buffer[..pos].trim().to_string();
+            buffer = buffer[(pos + 1)..].to_string();
+            if !line.starts_with("data: ") {
+                continue;
+            }
+            let data = line.trim_start_matches("data: ").trim();
+            if data == "[DONE]" {
+                continue;
+            }
+
+            let event: Value = match serde_json::from_str(data) {
+                Ok(event) => event,
+                Err(_) => continue,
+            };
+            HandleOpenaiEvent(&event, &mut content, &mut ToolCalls, &mut renderer)?;
+        }
+    }
+    renderer.finish()?;
+
+    let calls: Vec<Value> = ToolCalls
+        .iter()
+        .map(|(index, call)| {
+            json!({
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.name,
+                    "arguments": call.arguments,
+                },
+                "index": index,
+            })
+        })
+        .collect();
+
+    let ParsedCalls = ToolCalls
+        .into_values()
+        .map(|call| agent::ToolCall {
+            id: call.id,
+            name: call.name,
+            input: serde_json::from_str(&call.arguments).unwrap_or_else(|_| json!({})),
+        })
+        .collect();
+
+    Ok((
+        ParsedCalls,
+        json!({
+            "role": "assistant",
+            "content": if content.is_empty() { Value::Null } else { Value::String(content) },
+            "tool_calls": calls,
+        }),
+    ))
+}
+
+async fn StreamOpenai(
+    ApiKey: &str,
+    model: &str,
+    messages: &[Value],
+) -> Result<(Vec<agent::ToolCall>, Value), String> {
+    let client = reqwest::Client::new();
+    let tools = agent::ToolDefsOpenai();
+    let response = client
+        .post("https://api.openai.com/v1/chat/completions")
+        .bearer_auth(ApiKey)
+        .json(&json!({
+            "model": model,
+            "messages": messages,
+            "tools": tools,
+            "stream": true,
+        }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let Text = response.text().await.unwrap_or_default();
+        return Err(format!("OpenAI API error {status}: {Text}"));
     }
 
     let mut content = String::new();

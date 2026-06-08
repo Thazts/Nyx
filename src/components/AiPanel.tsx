@@ -5,12 +5,13 @@ import { StateManager } from "../state/StateManager";
 import { useStateKey } from "../state/useStateKey";
 import styles from "../styles/AiPanel.module.css";
 
-type MsgItem      = { Kind: "message";   Id: string; Role: "user" | "assistant"; Content: string };
-type ToolItem     = { Kind: "tool_call"; Id: string; Name: string; Input: Record<string, unknown>; Status: "running" | "done" | "error"; Result?: string };
-type ApprovalItem = { Kind: "approval";  Id: string; Name: string; Input: Record<string, unknown> };
-type ChangeItem   = { Kind: "change"; Change: AiChangeEvent };
-type QuestionItem = { Kind: "question"; Request: AiQuestionRequest; Status: "waiting" | "answered"; Result?: string };
-type StreamItem   = MsgItem | ToolItem | ApprovalItem | ChangeItem | QuestionItem;
+type MsgItem        = { Kind: "message";    Id: string; Role: "user" | "assistant"; Content: string };
+type ToolItem       = { Kind: "tool_call";  Id: string; Name: string; Input: Record<string, unknown>; Status: "running" | "done" | "error"; Result?: string; Expanded: boolean };
+type ApprovalItem   = { Kind: "approval";   Id: string; Name: string; Input: Record<string, unknown> };
+type ChangeItem     = { Kind: "change"; Change: AiChangeEvent };
+type QuestionItem   = { Kind: "question";   Request: AiQuestionRequest; Status: "waiting" | "answered"; Result?: string };
+type RateLimitItem  = { Kind: "rate_limit"; Id: string; SecondsLeft: number; TotalSeconds: number; AutoContinue: boolean; Ticking: boolean; Resolved: boolean };
+type StreamItem     = MsgItem | ToolItem | ApprovalItem | ChangeItem | QuestionItem | RateLimitItem;
 type TaskStatus   = "pending" | "active" | "done";
 type TaskStep     = { Label: string; Status: TaskStatus };
 type TaskSliceStatus = "active" | "replanned" | "blocked" | "complete";
@@ -40,6 +41,40 @@ interface AiChangeEvent {
         Added: number;
         Lines: string[];
     };
+}
+
+function RateLimitClock({ SecondsLeft, TotalSeconds }: { SecondsLeft: number; TotalSeconds: number }) {
+    const R = 20;
+    const Circumference = 2 * Math.PI * R;
+    const DashOffset = Circumference * (1 - SecondsLeft / TotalSeconds);
+    const HandAngle = (TotalSeconds - SecondsLeft) * (360 / TotalSeconds);
+    return (
+        <svg width="52" height="52" viewBox="0 0 52 52" className={styles.RateLimitClockSvg}>
+            <circle cx="26" cy="26" r={R} fill="none" stroke="var(--brd)" strokeWidth="2.5" />
+            <circle
+                cx="26" cy="26" r={R} fill="none"
+                stroke="var(--acc)" strokeWidth="2.5"
+                strokeDasharray={Circumference}
+                strokeDashoffset={DashOffset}
+                strokeLinecap="round"
+                transform="rotate(-90 26 26)"
+                style={{ transition: "stroke-dashoffset 0.55s cubic-bezier(0.34,1.56,0.64,1)" }}
+            />
+            <line
+                x1="26" y1="26" x2="26" y2="9"
+                stroke="var(--acc)" strokeWidth="2" strokeLinecap="round"
+                style={{
+                    transformOrigin: "26px 26px",
+                    transform: `rotate(${HandAngle}deg)`,
+                    transition: "transform 0.55s cubic-bezier(0.34,1.56,0.64,1)",
+                }}
+            />
+            <circle cx="26" cy="26" r="2.5" fill="var(--acc)" />
+            <text x="26" y="44" textAnchor="middle" fill="var(--txt3)" fontSize="8" fontWeight="600" fontFamily="inherit">
+                {SecondsLeft}s
+            </text>
+        </svg>
+    );
 }
 
 interface AiPanelProps {
@@ -122,6 +157,29 @@ function IsChangeTool(name: string): boolean {
         || name === "remove_range"
         || name === "write_obsidian";
 }
+
+type SkillId = "fengshui_protocol" | "self_help" | "lua_luau" | "viewport_manual";
+type SkillDefinition = {
+    Id: SkillId;
+    Label: string;
+    Classification: 1 | 2 | 3;
+    Hidden: boolean;
+    Description: string;
+};
+
+const AVAILABLE_SKILLS: readonly SkillDefinition[] = [
+    { Id: "fengshui_protocol", Label: "FengshuiProtocol", Classification: 2 as const, Hidden: false, Description: "Advanced frontend design and visual composition protocol" },
+    { Id: "self_help",         Label: "SelfHelp",         Classification: 2 as const, Hidden: false, Description: "Nyx project knowledge: design decisions, tech choices, and how to get help" },
+    { Id: "lua_luau",          Label: "Lua/Luau",         Classification: 2 as const, Hidden: false, Description: "Lua and Luau language reference including Roblox development patterns" },
+    { Id: "viewport_manual",   Label: "ViewportManual",   Classification: 2 as const, Hidden: true,  Description: "Nyx viewport manual; auto-activates on viewport topics" },
+] as const;
+
+const SKILL_INTENT_PATTERNS: Partial<Record<SkillId, RegExp>> = {
+    fengshui_protocol: /\b(css|styles?|layout|design|ui|component|colou?r|button|flex|grid|padding|margin|border|shadow|animation|font|typography|theme|dark\s*mode|light\s*mode|responsive|hover|gradient|radius|spacing|visual|appearance|look|aesthetic|card|panel|sidebar|toolbar|icon|badge|chip|modal|tooltip|navbar|header|footer)\b/i,
+    lua_luau:          /\b(lua|luau|roblox|rbx|script|localscript|modulescript|remotevent|remotefunc|bindable|datastore|workspace|runservice|heartbeat|humanoid|basepart|instance|require|pcall|coroutine|metatab|__index|__newindex|ipairs|pairs|tostring|tonumber)\b/i,
+    self_help:         /\b(what\s+is\s+nyx|how\s+does\s+nyx|nyx\s+(ide|app|project)|timmy|thazts|tech\s+stack|why\s+(tauri|wgpu|rust|react)|report\s+(bug|issue)|github\.com\/thazts|architecture|technology\s+choice|how\s+do\s+i\s+(get\s+help|report|configure))\b/i,
+    viewport_manual:   /\b(viewport|open_viewport|3d\s+scene|physics\s+profile|roblox_physics|unity_physics|unreal_physics|scene\s+file|\.luau|engine\s+mode|engine\s+target|wgpu\s+render|nyx\s+scene)\b/i,
+};
 
 const CHANGE_CARD_PREVIEW_LIMIT = 8;
 const HISTORY_TEXT_LIMIT = 80000;
@@ -232,7 +290,7 @@ function ParseSliceAttributes(value: string): Record<string, string> {
     return Result;
 }
 
-function ExtractSliceSteps(content: string): TaskStep[] | null {
+function ExtractSliceSteps(content: string, Lenient = false): TaskStep[] | null {
     const Steps: TaskStep[] = [];
     for (const Line of content.split(/\r?\n/)) {
         const Checkbox = Line.match(/^\s*(?:[-*]\s*|\d+[\).]\s*)?\[([^\]]*)\]\s+(.+)$/);
@@ -247,6 +305,7 @@ function ExtractSliceSteps(content: string): TaskStep[] | null {
         });
     }
 
+    if (Lenient) return Steps.length > 0 ? Steps : null;
     return Steps.length === 4 ? Steps : null;
 }
 
@@ -271,6 +330,24 @@ function ExtractTaskSlice(content: string): TaskSlice | null {
             Reason: Reason || undefined,
             Steps,
         });
+    }
+
+    const LastClose = content.lastIndexOf("[/NYX_SLICE]");
+    const LastOpen  = content.lastIndexOf("[NYX_SLICE");
+    if (LastOpen > LastClose) {
+        const Partial = /\[NYX_SLICE([^\]]*)\]([\s\S]*)$/.exec(content.slice(LastOpen));
+        if (Partial) {
+            const Attrs  = ParseSliceAttributes(Partial[1]);
+            const Id     = Attrs.id?.trim();
+            const Status = ParseSliceStatus(Attrs.status);
+            const Reason = Attrs.reason?.trim();
+            const Steps  = ExtractSliceSteps(Partial[2], true);
+
+            const ReasonRequired = Status === "blocked" || Status === "replanned";
+            if (Id && Status && Steps && (!ReasonRequired || Reason)) {
+                return { Id, Status, Reason: Reason || undefined, Steps };
+            }
+        }
     }
 
     return Blocks.length > 0 ? Blocks[Blocks.length - 1] : null;
@@ -426,11 +503,12 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
     const [Streaming,   SetStreaming] = useState(false);
     const [Provider,    SetProvider]  = useState<AiProvider>("anthropic");
     const [Mode,        SetMode]      = useState<AiMode>("supervised");
-    const [Config,      SetConfig]    = useState<{ AnthropicKeySet: boolean; DeepseekKeySet: boolean } | null>(null);
+    const [Config,      SetConfig]    = useState<{ AnthropicKeySet: boolean; DeepseekKeySet: boolean; OpenaiKeySet: boolean } | null>(null);
     const [Error,       SetError]     = useState<string | null>(null);
     const [Activity,    SetActivity]  = useState<AiActivityEvent>({ Kind: "idle", Label: "Idle" });
     const [QuestionDrafts, SetQuestionDrafts] = useState<Record<string, QuestionDraft>>({});
     const [DisclosureOpen, SetDisclosureOpen] = useState(() => !HasAcknowledgedAiDisclosure());
+    const [ActiveSkills,   SetActiveSkills]   = useState<Set<SkillId>>(new Set());
     const TaskSlice = useStateKey<TaskSlice | null>("AiTaskSlice");
 
     const ScrollRef    = useRef<HTMLDivElement>(null);
@@ -548,8 +626,10 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
     }, [SetAssistantMessage, StopTypewriter]);
 
     const AvailableProviders: AiProvider[] = Config
-        ? (["anthropic", "deepseek"] as AiProvider[]).filter(P =>
-            P === "anthropic" ? Config.AnthropicKeySet : Config.DeepseekKeySet)
+        ? (["anthropic", "deepseek", "openai"] as AiProvider[]).filter(P =>
+            P === "anthropic" ? Config.AnthropicKeySet :
+            P === "deepseek"  ? Config.DeepseekKeySet  :
+            Config.OpenaiKeySet)
         : [];
 
     useEffect(() => {
@@ -557,7 +637,9 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
 
         const ProviderHasKey = Provider === "anthropic"
             ? Config.AnthropicKeySet
-            : Config.DeepseekKeySet;
+            : Provider === "deepseek"
+            ? Config.DeepseekKeySet
+            : Config.OpenaiKeySet;
         if (ProviderHasKey) return;
 
         const NextProvider = AvailableProviders[0];
@@ -645,7 +727,7 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
             );
             SetStream(Prev => [...Prev, {
                 Kind: "tool_call", Id: E.payload.id, Name: E.payload.name,
-                Input: E.payload.input, Status: "running",
+                Input: E.payload.input, Status: "running", Expanded: false,
             }]);
         }));
 
@@ -702,9 +784,41 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         unsubs.push(await listen<string>("ai_tool_denied", E => {
             SetStream(Prev => Prev.map(Item => {
                 if (Item.Kind !== "approval" || Item.Id !== E.payload) return Item;
-                const Replaced: ToolItem = { Kind: "tool_call", Id: Item.Id, Name: Item.Name, Input: Item.Input, Status: "error", Result: "Denied by user" };
+                const Replaced: ToolItem = { Kind: "tool_call", Id: Item.Id, Name: Item.Name, Input: Item.Input, Status: "error", Result: "Denied by user", Expanded: false };
                 return Replaced;
             }));
+        }));
+
+        unsubs.push(await listen<{ wait_seconds: number; auto_continue: boolean }>("ai_rate_limit", E => {
+            const Id = `rate_limit_${Date.now()}`;
+            const Item: RateLimitItem = {
+                Kind: "rate_limit", Id,
+                SecondsLeft: E.payload.wait_seconds,
+                TotalSeconds: E.payload.wait_seconds,
+                AutoContinue: E.payload.auto_continue,
+                Ticking: E.payload.auto_continue,
+                Resolved: false,
+            };
+            SetStream(Prev => [...Prev, Item]);
+        }));
+
+        unsubs.push(await listen<{ seconds_remaining: number }>("ai_rate_limit_tick", E => {
+            SetStream(Prev => {
+                let Idx = -1;
+                for (let J = Prev.length - 1; J >= 0; J--) {
+                    if (Prev[J].Kind === "rate_limit") { Idx = J; break; }
+                }
+                if (Idx < 0) return Prev;
+                const Copy = [...Prev];
+                const Item = Copy[Idx] as RateLimitItem;
+                Copy[Idx] = {
+                    ...Item,
+                    SecondsLeft: E.payload.seconds_remaining,
+                    Ticking: true,
+                    Resolved: E.payload.seconds_remaining === 0,
+                };
+                return Copy;
+            });
         }));
 
         unsubs.push(await listen<void>("ai_done", () => {
@@ -750,7 +864,15 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
 
         UnsubsRef.current = unsubs;
 
-        AiService.StartAgent(Provider, NextHistory, Workspace, Mode).catch((Err: unknown) => {
+        const EffectiveSkills = AVAILABLE_SKILLS
+            .filter(Skill =>
+                Skill.Classification === 1 ||
+                (Skill.Classification === 2 && (ActiveSkills.has(Skill.Id) || SKILL_INTENT_PATTERNS[Skill.Id]?.test(Text))) ||
+                (Skill.Classification === 3 && ActiveSkills.has(Skill.Id))
+            )
+            .map(Skill => Skill.Id);
+
+        AiService.StartAgent(Provider, NextHistory, Workspace, Mode, EffectiveSkills).catch((Err: unknown) => {
             SetError(String(Err));
             SetStreaming(false);
             StopTypewriter();
@@ -758,7 +880,7 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
             unsubs.forEach(fn => fn());
             UnsubsRef.current = [];
         });
-    }, [Input, Streaming, ApiHistory, Provider, Mode, Workspace, AvailableProviders, NewStreamId, UpdateTaskSliceFromText, AdvanceTaskSliceFromCheckpoint, StartTypewriter, StopTypewriter, FlushAssistantSegment]);
+    }, [Input, Streaming, ApiHistory, Provider, Mode, Workspace, ActiveSkills, AvailableProviders, NewStreamId, UpdateTaskSliceFromText, AdvanceTaskSliceFromCheckpoint, StartTypewriter, StopTypewriter, FlushAssistantSegment]);
 
     const HandleKeyDown = useCallback((E: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (E.key === "Enter" && !E.shiftKey) {
@@ -843,6 +965,18 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         AiService.SaveAppSettings({ DefaultProvider: P }).catch(() => {});
     }, []);
 
+    const HandleSkillToggle = useCallback((Id: SkillId) => {
+        SetActiveSkills(Prev => {
+            const Next = new Set(Prev);
+            if (Next.has(Id)) {
+                Next.delete(Id);
+            } else {
+                Next.add(Id);
+            }
+            return Next;
+        });
+    }, []);
+
     const HandleModeToggle = useCallback(() => {
         const Next: AiMode =
             Mode === "supervised" ? "autonomous" :
@@ -860,6 +994,14 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         });
     }, [Workspace]);
 
+    const HandleToolToggle = useCallback((Id: string) => {
+        SetStream(Prev => Prev.map(Item =>
+            Item.Kind === "tool_call" && Item.Id === Id
+                ? { ...Item, Expanded: !Item.Expanded }
+                : Item
+        ));
+    }, []);
+
     const HandleOpenChange = useCallback((Path: string) => {
         Promise.resolve(OnOpenFile(Path)).catch((Err: unknown) => {
             SetError(String(Err));
@@ -872,8 +1014,9 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         <div className={styles.Panel}>
             <div className={styles.Toolbar}>
                 <div className={styles.ProviderGroup}>
-                    {(["anthropic", "deepseek"] as AiProvider[]).map(P => {
-                        const HasKey = P === "anthropic" ? Config?.AnthropicKeySet : Config?.DeepseekKeySet;
+                    {(["anthropic", "deepseek", "openai"] as AiProvider[]).map(P => {
+                        const HasKey = P === "anthropic" ? Config?.AnthropicKeySet : P === "deepseek" ? Config?.DeepseekKeySet : Config?.OpenaiKeySet;
+                        const Label  = P === "anthropic" ? "Anthropic" : P === "deepseek" ? "DeepSeek" : "OpenAI";
                         return (
                             <button
                                 key={P}
@@ -881,7 +1024,7 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
                                 onClick={() => HandleProviderChange(P)}
                                 title={!HasKey ? `No ${P} key configured` : undefined}
                             >
-                                {P === "anthropic" ? "Anthropic" : "DeepSeek"}
+                                {Label}
                             </button>
                         );
                     })}
@@ -916,6 +1059,29 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
                 <button className={styles.ClearBtn} onClick={HandleClear} title="Clear conversation">
                     Clear
                 </button>
+            </div>
+
+            <div className={styles.SkillsRow}>
+                {AVAILABLE_SKILLS.filter(Skill => !Skill.Hidden).map(Skill => {
+                    const AlwaysOn = Skill.Classification === 1;
+                    const Active   = AlwaysOn || ActiveSkills.has(Skill.Id);
+                    const Title    = AlwaysOn
+                        ? `${Skill.Description} - always active`
+                        : Skill.Classification === 2
+                            ? `${Skill.Description} - auto-activates on matching requests`
+                            : Skill.Description;
+                    return (
+                        <button
+                            key={Skill.Id}
+                            className={`${styles.SkillChip}${Active ? ` ${styles.SkillChipActive}` : ""}${AlwaysOn ? ` ${styles.SkillChipAlways}` : ""}`}
+                            onClick={AlwaysOn ? undefined : () => HandleSkillToggle(Skill.Id)}
+                            title={Title}
+                            aria-pressed={Active}
+                        >
+                            {Skill.Label}
+                        </button>
+                    );
+                })}
             </div>
 
             <div className={`${styles.ActivityStrip} ${Streaming ? styles.ActivityStripActive : ""}`}>
@@ -1013,15 +1179,28 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
                     }
 
                     if (Item.Kind === "tool_call") {
+                        const IsError = Item.Status === "error";
+                        const IsLong = !!Item.Result && Item.Result.length > 360;
+                        const VisibleResult = IsLong && !Item.Expanded
+                            ? Item.Result!.slice(0, 360) + "…"
+                            : Item.Result;
                         return (
-                            <div key={I} className={`${styles.ToolCard} ${Item.Status === "error" ? styles.ToolCardError : Item.Status === "done" ? styles.ToolCardDone : styles.ToolCardRunning}`}>
+                            <div key={I} className={`${styles.ToolCard} ${IsError ? styles.ToolCardError : Item.Status === "done" ? styles.ToolCardDone : styles.ToolCardRunning}`}>
                                 <div className={styles.ToolCardHeader}>
                                     <span className={styles.ToolIcon}>{ToolIcon(Item.Name)}</span>
                                     <span className={styles.ToolAction}>{ToolActionLabel(Item.Name, Item.Input) || "Running action"}</span>
                                     <span className={styles.ToolName}>{Item.Name}</span>
                                     <span className={styles.ToolStatus}>{StatusLabel(Item.Status)}</span>
                                 </div>
-                                {RenderToolResult(Item.Name, Item.Result, Item.Status === "error")}
+                                {RenderToolResult(Item.Name, VisibleResult, IsError)}
+                                {IsLong && (
+                                    <button
+                                        className={styles.ToolResultToggle}
+                                        onClick={() => HandleToolToggle(Item.Id)}
+                                    >
+                                        {Item.Expanded ? "Show less" : "Show full"}
+                                    </button>
+                                )}
                             </div>
                         );
                     }
@@ -1119,6 +1298,45 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
                                 ) : (
                                     <div className={styles.QuestionResult}>{Item.Result}</div>
                                 )}
+                            </div>
+                        );
+                    }
+
+                    if (Item.Kind === "rate_limit") {
+                        const ShowButtons = !Item.AutoContinue && !Item.Ticking;
+                        return (
+                            <div key={I} className={`${styles.RateLimitCard} ${Item.Resolved ? styles.RateLimitCardResolved : ""}`}>
+                                <div className={styles.RateLimitBody}>
+                                    <RateLimitClock SecondsLeft={Item.SecondsLeft} TotalSeconds={Item.TotalSeconds} />
+                                    <div className={styles.RateLimitText}>
+                                        <div className={styles.RateLimitTitle}>
+                                            {Item.Resolved ? "Resuming task…" : "Rate limit reached"}
+                                        </div>
+                                        <div className={styles.RateLimitDesc}>
+                                            {Item.Resolved
+                                                ? "Retrying the request now."
+                                                : Item.Ticking
+                                                    ? `Retrying in ${Item.SecondsLeft}s…`
+                                                    : "The API rate limit was hit. Wait 60 s then retry?"}
+                                        </div>
+                                        {ShowButtons && (
+                                            <div className={styles.RateLimitActions}>
+                                                <button
+                                                    className={styles.RateLimitContinueBtn}
+                                                    onClick={() => AiService.RespondToRateLimit(true)}
+                                                >
+                                                    Wait &amp; continue
+                                                </button>
+                                                <button
+                                                    className={styles.RateLimitCancelBtn}
+                                                    onClick={() => AiService.RespondToRateLimit(false)}
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         );
                     }

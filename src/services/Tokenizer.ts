@@ -81,8 +81,6 @@ function TokeniseWithPattern(
     return Result;
 }
 
-// ── Luau ──────────────────────────────────────────────────────────────────────
-
 const LuauKeywords = new Set([
     "local", "function", "end", "if", "then", "else", "elseif", "return",
     "for", "while", "do", "repeat", "until", "and", "or", "not", "nil",
@@ -95,8 +93,6 @@ const LuauPattern = /(?<comment>--\[\[[\s\S]*?\]\]|--[^\n]*)|(?<string>"(?:[^"\\
 function TokeniseLuau(Source: string): Token[] {
     return TokeniseWithPattern(Source, LuauPattern, LuauKeywords);
 }
-
-// ── TypeScript / JavaScript ───────────────────────────────────────────────────
 
 const TsKeywords = new Set([
     "const", "let", "var", "function", "class", "interface", "type",
@@ -115,8 +111,6 @@ function TokeniseTs(Source: string): Token[] {
     return TokeniseWithPattern(Source, TsPattern, TsKeywords);
 }
 
-// ── Rust ──────────────────────────────────────────────────────────────────────
-
 const RustKeywords = new Set([
     "let", "mut", "fn", "pub", "use", "mod", "struct", "enum", "impl",
     "trait", "type", "where", "if", "else", "match", "for", "while",
@@ -131,8 +125,6 @@ const RustPattern = /(?<comment>\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(?<string>"(?:[^"\\
 function TokeniseRust(Source: string): Token[] {
     return TokeniseWithPattern(Source, RustPattern, RustKeywords);
 }
-
-// ── CSS ───────────────────────────────────────────────────────────────────────
 
 const CssKeywords = new Set<string>();
 
@@ -154,8 +146,6 @@ function TokeniseCss(Source: string): Token[] {
     });
 }
 
-// ── JSON ──────────────────────────────────────────────────────────────────────
-
 const JsonPattern = /(?<comment>\/\/[^\n]*)|(?<string>"(?:[^"\\]|\\.)*")|(?<number>-?\d+\.?\d*(?:[eE][+-]?\d+)?)|(?<ident>true|false|null)|(?<op>[{}\[\]:,])/g;
 
 function TokeniseJson(Source: string): Token[] {
@@ -173,8 +163,6 @@ function TokeniseJson(Source: string): Token[] {
     });
 }
 
-// ── Python ────────────────────────────────────────────────────────────────────
-
 const PythonKeywords = new Set([
     "def", "class", "if", "elif", "else", "for", "while", "try", "except",
     "finally", "with", "import", "from", "return", "yield", "break", "continue",
@@ -188,8 +176,6 @@ const PythonPattern = /(?<comment>#[^\n]*)|(?<string>"""[\s\S]*?"""|'''[\s\S]*?'
 function TokenisePython(Source: string): Token[] {
     return TokeniseWithPattern(Source, PythonPattern, PythonKeywords);
 }
-
-// ── HTML ──────────────────────────────────────────────────────────────────────
 
 const HtmlTagKeywords = new Set([
     "div", "span", "p", "a", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -277,8 +263,6 @@ function TokeniseHtml(Source: string): Token[] {
     return Result;
 }
 
-// ── TOML ──────────────────────────────────────────────────────────────────────
-
 const TomlKeywords = new Set(["true", "false", "inf", "nan", "+inf", "-inf"]);
 
 const TomlPattern = /(?<comment>#[^\n]*)|(?<string>"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'[^']*')|(?<number>0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)?|\+?-?\d+\.?\d*(?:[eE][+-]?\d+)?)|(?<ident>[a-zA-Z_][a-zA-Z0-9_\-.]*)|(?<op>[={}\[\].,])/g;
@@ -297,8 +281,6 @@ function TokeniseToml(Source: string): Token[] {
         return T;
     });
 }
-
-// ── WGSL ──────────────────────────────────────────────────────────────────────
 
 const WgslKeywords = new Set([
     "var", "let", "fn", "struct", "if", "else", "for", "while", "loop",
@@ -330,8 +312,6 @@ function TokeniseWgsl(Source: string): Token[] {
     return TokeniseWithPattern(Source, WgslPattern, WgslKeywords);
 }
 
-// ── GLSL ──────────────────────────────────────────────────────────────────────
-
 const GlslKeywords = new Set([
     "attribute", "uniform", "varying", "in", "out", "inout",
     "precision", "highp", "mediump", "lowp", "if", "else",
@@ -360,8 +340,6 @@ const GlslPattern = /(?<comment>\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(?<string>"(?:[^"\\
 function TokeniseGlsl(Source: string): Token[] {
     return TokeniseWithPattern(Source, GlslPattern, GlslKeywords);
 }
-
-// ── Markdown ──────────────────────────────────────────────────────────────────
 
 function TokeniseMarkdown(Source: string): Token[] {
     const Result: Token[] = [];
@@ -421,8 +399,6 @@ function TokeniseMdInline(Line: string, Result: Token[]): void {
     if (Last < Line.length) Result.push({ Type: "Default", Value: Line.slice(Last) });
 }
 
-// ── YAML ──────────────────────────────────────────────────────────────────────
-
 const YamlKeywords = new Set(["true", "false", "null", "yes", "no", "on", "off", "~"]);
 
 const YamlPattern = /(?<comment>#[^\n]*)|(?<string>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[|>][-+]?(?:\n(?:  [^\n]*))+)|(?<number>-?\d+\.?\d*(?:[eE][+-]?\d+)?|0x[0-9a-fA-F]+|0o[0-7]+|0b[01]+)|(?<ident>[&*][a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_\-. /]*)|(?<op>[:{}\[\],\-])/g;
@@ -445,8 +421,6 @@ function TokeniseYaml(Source: string): Token[] {
     });
 }
 
-// ── C ─────────────────────────────────────────────────────────────────────────
-
 const CKeywords = new Set([
     "int", "char", "float", "double", "void", "long", "short", "unsigned",
     "signed", "const", "static", "extern", "volatile", "register", "auto",
@@ -463,8 +437,6 @@ function TokeniseC(Source: string): Token[] {
     return TokeniseWithPattern(Source, CPattern, CKeywords);
 }
 
-// ── C++ ───────────────────────────────────────────────────────────────────────
-
 const CppKeywords = new Set([
     ...CKeywords,
     "class", "namespace", "template", "typename", "new", "delete", "try",
@@ -480,8 +452,6 @@ const CppKeywords = new Set([
 function TokeniseCpp(Source: string): Token[] {
     return TokeniseWithPattern(Source, CPattern, CppKeywords);
 }
-
-// ── Go ────────────────────────────────────────────────────────────────────────
 
 const GoKeywords = new Set([
     "func", "var", "const", "type", "struct", "interface", "map", "chan",
@@ -502,8 +472,6 @@ function TokeniseGo(Source: string): Token[] {
     return TokeniseWithPattern(Source, GoPattern, GoKeywords);
 }
 
-// ── Bash ──────────────────────────────────────────────────────────────────────
-
 const BashKeywords = new Set([
     "if", "then", "else", "elif", "fi", "for", "while", "do", "done",
     "case", "esac", "in", "function", "return", "exit", "local", "export",
@@ -522,8 +490,6 @@ function TokeniseBash(Source: string): Token[] {
         return T;
     });
 }
-
-// ── SQL ───────────────────────────────────────────────────────────────────────
 
 const SqlKeywordSet = new Set([
     "SELECT", "FROM", "WHERE", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
@@ -559,8 +525,6 @@ function TokeniseSql(Source: string): Token[] {
     });
 }
 
-// ── C# ────────────────────────────────────────────────────────────────────────
-
 const CsharpKeywords = new Set([
     "class", "interface", "struct", "enum", "namespace", "using", "var",
     "const", "public", "private", "protected", "internal", "static",
@@ -583,8 +547,6 @@ function TokeniseCsharp(Source: string): Token[] {
     return TokeniseWithPattern(Source, CsharpPattern, CsharpKeywords);
 }
 
-// ── Java ──────────────────────────────────────────────────────────────────────
-
 const JavaKeywords = new Set([
     "class", "interface", "enum", "abstract", "extends", "implements",
     "new", "this", "super", "return", "if", "else", "for", "while", "do",
@@ -600,8 +562,6 @@ const JavaKeywords = new Set([
 function TokeniseJava(Source: string): Token[] {
     return TokeniseWithPattern(Source, TsPattern, JavaKeywords);
 }
-
-// ── XML ───────────────────────────────────────────────────────────────────────
 
 function TokeniseXml(Source: string): Token[] {
     const Result: Token[] = [];
@@ -676,13 +636,9 @@ function TokeniseXml(Source: string): Token[] {
     return Result;
 }
 
-// ── Plain ─────────────────────────────────────────────────────────────────────
-
 function TokenisePlain(Source: string): Token[] {
     return [{ Type: "Default", Value: Source }];
 }
-
-// ── Dispatch ──────────────────────────────────────────────────────────────────
 
 export function Tokenize(Source: string, Language: string): Token[] {
     switch (Language) {

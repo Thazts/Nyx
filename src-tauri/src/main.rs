@@ -9,6 +9,7 @@ use tauri::Manager;
 mod agent_runtime;
 mod commands;
 mod renderer;
+mod skills;
 mod state;
 
 use commands::agent::ApprovalState;
@@ -92,6 +93,7 @@ fn main() {
             commands::ai_start_agent,
             commands::ai_tool_respond,
             commands::ai_question_respond,
+            commands::ai_rate_limit_respond,
             commands::ai_launch_keyman,
             commands::ai_launch_nyx_cli,
             commands::get_app_settings,

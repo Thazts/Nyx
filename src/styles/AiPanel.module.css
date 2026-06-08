@@ -94,6 +94,44 @@
 
 .ClearBtn:hover { color: var(--txt2); border-color: rgba(255,255,255,0.1); }
 
+.SkillsRow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 14px;
+    border-bottom: 1px solid var(--brd);
+    flex-shrink: 0;
+}
+
+.SkillChip {
+    padding: 2px 8px;
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 4px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf), background var(--tf);
+    font-family: inherit;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.SkillChip:hover { color: var(--txt2); background: rgba(255,255,255,0.04); }
+
+.SkillChipActive {
+    color: var(--acc) !important;
+    border-color: rgba(212,176,204,0.3) !important;
+    background: rgba(212,176,204,0.07) !important;
+}
+
+.SkillChipAlways {
+    cursor: default;
+    opacity: 0.7;
+}
+.SkillChipAlways:hover { background: rgba(212,176,204,0.07) !important; }
+
 .ActivityStrip {
     display: flex;
     align-items: center;
@@ -264,17 +302,19 @@
     border-color: rgba(240,198,223,0.68);
     background: rgba(212,176,204,0.13);
     color: #f0c6df;
-    border-radius: 42% 58% 48% 52%;
-    transform: scaleX(1.12) rotate(-8deg);
+    border-radius: 24%;
+    transform: rotate(45deg);
     box-shadow:
         0 0 0 3px rgba(212,176,204,0.08),
         0 0 18px rgba(212,176,204,0.16);
-    animation: TaskStepMarkFluid 5.8s var(--smooth-out) infinite;
+    animation: DiamondSpin 9.1s linear infinite;
 }
 
 .TaskStepActive .TaskStepMark::after {
-    opacity: 0.42;
-    transform: scaleX(1.15) scaleY(0.68) rotate(16deg);
+    opacity: 0.38;
+    border-radius: 3px;
+    transform: rotate(0deg);
+    animation: DiamondSpinInner 5.7s linear infinite;
 }
 
 .TaskStepActive .TaskStepLabel {
@@ -325,33 +365,92 @@
     }
 }
 
-@keyframes TaskStepMarkFluid {
-    0%, 100% {
-        border-radius: 42% 58% 48% 52%;
-        transform: scaleX(1.12) scaleY(0.96) rotate(-8deg);
+@keyframes DiamondSpin {
+    0% {
+        transform: rotate(45deg);
+        animation-timing-function: linear;
     }
-    35% {
-        border-radius: 56% 44% 42% 58%;
-        transform: scaleX(0.9) scaleY(1.18) rotate(10deg);
+    7% {
+        transform: rotate(45deg);
+        animation-timing-function: cubic-bezier(0.34, 1.48, 0.64, 1);
     }
-    68% {
-        border-radius: 36% 64% 62% 38%;
-        transform: scaleX(1.2) scaleY(0.88) rotate(4deg);
+    15% {
+        transform: rotate(165deg);
+        animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    20% {
+        transform: rotate(152deg);
+        animation-timing-function: linear;
+    }
+    43% {
+        transform: rotate(152deg);
+        animation-timing-function: cubic-bezier(0.34, 1.48, 0.64, 1);
+    }
+    52% {
+        transform: rotate(285deg);
+        animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    57% {
+        transform: rotate(273deg);
+        animation-timing-function: linear;
+    }
+    79% {
+        transform: rotate(273deg);
+        animation-timing-function: cubic-bezier(0.34, 1.52, 0.64, 1);
+    }
+    89% {
+        transform: rotate(420deg);
+        animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    100% {
+        transform: rotate(405deg);
+    }
+}
+
+@keyframes DiamondSpinInner {
+    0% {
+        transform: rotate(0deg);
+        animation-timing-function: linear;
+    }
+    5% {
+        transform: rotate(0deg);
+        animation-timing-function: cubic-bezier(0.34, 1.45, 0.64, 1);
+    }
+    18% {
+        transform: rotate(-128deg);
+        animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    23% {
+        transform: rotate(-116deg);
+        animation-timing-function: linear;
+    }
+    57% {
+        transform: rotate(-116deg);
+        animation-timing-function: cubic-bezier(0.34, 1.45, 0.64, 1);
+    }
+    70% {
+        transform: rotate(-260deg);
+        animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    76% {
+        transform: rotate(-248deg);
+        animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+    }
+    100% {
+        transform: rotate(-360deg);
     }
 }
 
 @keyframes TaskStepDoneSettle {
     0% {
-        border-radius: 44% 56% 52% 48%;
-        transform: scaleX(1.28) scaleY(0.72) rotate(-10deg);
+        border-radius: 24%;
+        transform: scale(1.14) rotate(20deg);
+        animation-timing-function: cubic-bezier(0.34, 1.52, 0.64, 1);
     }
-    42% {
-        border-radius: 36% 64% 42% 58%;
-        transform: scaleX(0.76) scaleY(1.28) rotate(28deg);
-    }
-    72% {
-        border-radius: 6px;
-        transform: scale(1.08) rotate(45deg);
+    62% {
+        border-radius: 5px;
+        transform: scale(1.09) rotate(52deg);
+        animation-timing-function: cubic-bezier(0.34, 1.42, 0.64, 1);
     }
     100% {
         border-radius: 5px;
@@ -608,8 +707,6 @@
     50%       { opacity: 1; }
 }
 
-/* ── Mode toggle ──────────────────────────────────────────────────────────── */
-
 .ModeBtn {
     padding: 3px 8px;
     font-size: 9px;
@@ -632,8 +729,6 @@
     border-color: rgba(212,184,122,0.3) !important;
     background: rgba(212,184,122,0.06) !important;
 }
-
-/* ── Tool call cards ──────────────────────────────────────────────────────── */
 
 .ToolCard {
     border-radius: 7px;
@@ -741,6 +836,23 @@
     color: var(--txt3);
     font-size: 9.5px;
     line-height: 1.45;
+}
+
+.ToolResultToggle {
+    display: block;
+    margin: 0 10px 7px 31px;
+    padding: 2px 8px;
+    background: transparent;
+    border: 1px solid var(--brd);
+    border-radius: 4px;
+    color: var(--txt3);
+    font-size: 9px;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease;
+}
+.ToolResultToggle:hover {
+    color: var(--acc);
+    border-color: var(--acc);
 }
 
 .ChangePreview {
@@ -858,10 +970,6 @@
     max-height: 220px;
     overflow: auto;
 }
-
-/* ── Approval card ────────────────────────────────────────────────────────── */
-
-/* Question card */
 
 .QuestionCard {
     border-radius: 7px;
@@ -1078,6 +1186,79 @@
 
 .DenyBtn:hover  { color: var(--txt2); border-color: rgba(255,255,255,0.12); }
 .DenyBtn:active { transform: scale(0.94); }
+
+.RateLimitCard {
+    border-radius: 7px;
+    border: 1px solid color-mix(in srgb, var(--acc) 35%, transparent);
+    background: color-mix(in srgb, var(--acc) 7%, transparent);
+    padding: 10px 12px;
+    animation: ToolIn 0.22s var(--smooth-out) both;
+    transition: opacity 400ms ease;
+}
+
+.RateLimitCardResolved {
+    opacity: 0.55;
+}
+
+.RateLimitBody {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.RateLimitClockSvg {
+    flex-shrink: 0;
+}
+
+.RateLimitText {
+    flex: 1;
+    min-width: 0;
+}
+
+.RateLimitTitle {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--txt);
+    margin-bottom: 3px;
+}
+
+.RateLimitDesc {
+    font-size: 10px;
+    color: var(--txt3);
+    line-height: 1.4;
+}
+
+.RateLimitActions {
+    display: flex;
+    gap: 6px;
+    margin-top: 9px;
+}
+
+.RateLimitContinueBtn {
+    padding: 4px 12px;
+    border-radius: 5px;
+    border: 1px solid color-mix(in srgb, var(--acc) 50%, transparent);
+    background: color-mix(in srgb, var(--acc) 14%, transparent);
+    color: var(--acc);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 120ms ease, transform 120ms ease;
+}
+.RateLimitContinueBtn:hover  { background: color-mix(in srgb, var(--acc) 22%, transparent); }
+.RateLimitContinueBtn:active { transform: scale(0.95); }
+
+.RateLimitCancelBtn {
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: 1px solid var(--brd);
+    background: transparent;
+    color: var(--txt3);
+    font-size: 10px;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease;
+}
+.RateLimitCancelBtn:hover { color: var(--txt2); border-color: rgba(255,255,255,0.15); }
 
 @media (max-width: 760px) {
     .TaskStepGrid {

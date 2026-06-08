@@ -4,6 +4,7 @@ use zeroize::Zeroize;
 const KEYRING_SERVICE: &str = "nyx-ide";
 const KEYRING_ANTHROPIC: &str = "anthropic";
 const KEYRING_DEEPSEEK: &str = "deepseek";
+const KEYRING_OPENAI: &str = "openai";
 
 const ACC: &str = "\x1b[38;2;212;176;204m";
 const DIM: &str = "\x1b[38;2;86;80;95m";
@@ -65,6 +66,7 @@ fn main() {
     println!();
     println!("  {}1{}  ·  Anthropic", ACC, RST);
     println!("  {}2{}  ·  DeepSeek", ACC, RST);
+    println!("  {}3{}  ·  OpenAI", ACC, RST);
     println!();
     print!("  {}>{} ", ACC, RST);
     let _ = io::stdout().flush();
@@ -80,8 +82,9 @@ fn main() {
     let (account, label) = match choice.as_str() {
         "1" => (KEYRING_ANTHROPIC, "Anthropic"),
         "2" => (KEYRING_DEEPSEEK, "DeepSeek"),
+        "3" => (KEYRING_OPENAI, "OpenAI"),
         _ => {
-            println!("\n  {}Invalid selection. Enter 1 or 2.{}", RED, RST);
+            println!("\n  {}Invalid selection. Enter 1, 2, or 3.{}", RED, RST);
             pause();
             return;
         }

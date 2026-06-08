@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import styles from "../styles/SettingsPanel.module.css";
-import { AiMode, AiService } from "../services/AiService";
+import { AiMode, AiService, RateLimitMode } from "../services/AiService";
 
 interface Settings {
     FontSize:   number;
@@ -77,15 +77,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
 
     const [AnthropicKeySet,   SetAnthropicKeySet]   = useState(false);
     const [DeepseekKeySet,    SetDeepseekKeySet]    = useState(false);
+    const [OpenaiKeySet,      SetOpenaiKeySet]      = useState(false);
     const [Configuring,       SetConfiguring]       = useState(false);
     const [ObsidianPath,      SetObsidianPath]      = useState("");
     const [AiModeValue,       SetAiModeValue]       = useState<AiMode>("supervised");
+    const [RateLimitMode,     SetRateLimitMode]     = useState<RateLimitMode>("ask");
     const PollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const RefreshKeyStatus = useCallback(() => {
         AiService.GetConfig().then(C => {
             SetAnthropicKeySet(C.AnthropicKeySet);
             SetDeepseekKeySet(C.DeepseekKeySet);
+            SetOpenaiKeySet(C.OpenaiKeySet);
         }).catch(() => {});
     }, []);
 
@@ -94,13 +97,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
         AiService.GetAppSettings().then(S => {
             SetObsidianPath(S.ObsidianVaultPath ?? "");
             SetAiModeValue(S.AiMode);
+            SetRateLimitMode(S.RateLimitAutoContinue);
         }).catch(() => {});
         return () => { if (PollRef.current) clearTimeout(PollRef.current); };
     }, []);
 
     const HandleConfigureKeys = useCallback(async () => {
         SetConfiguring(true);
-        try { await AiService.LaunchKeyman(); } catch { /* keyman path missing in dev */ }
+        try { await AiService.LaunchKeyman(); } catch {}
         PollRef.current = setTimeout(() => {
             RefreshKeyStatus();
             SetConfiguring(false);
@@ -109,10 +113,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
 
     const HandleSaveAiSettings = useCallback(async () => {
         await AiService.SaveAppSettings({
-            ObsidianVaultPath: ObsidianPath.trim() || null,
-            AiMode: AiModeValue,
+            ObsidianVaultPath:     ObsidianPath.trim() || null,
+            AiMode:                AiModeValue,
+            RateLimitAutoContinue: RateLimitMode,
         });
-    }, [ObsidianPath, AiModeValue]);
+    }, [ObsidianPath, AiModeValue, RateLimitMode]);
+
+    const HandleRateLimitMode = useCallback((Mode: RateLimitMode) => {
+        SetRateLimitMode(Mode);
+        AiService.GetAppSettings().then(S =>
+            AiService.SaveAppSettings({ ...S, RateLimitAutoContinue: Mode })
+        ).catch(() => {});
+    }, []);
 
     const HandleModeToggle = useCallback(() => {
         const Next: AiMode =
@@ -227,6 +239,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
                             </span>
                         </div>
 
+                        <div className={styles.KeyRow}>
+                            <span className={styles.Label}>OpenAI</span>
+                            <span className={`${styles.KeyStatus}${OpenaiKeySet ? ` ${styles.KeyStatusOk}` : ""}`}>
+                                {OpenaiKeySet ? "configured" : "not set"}
+                            </span>
+                        </div>
+
                         <div className={styles.AiActions}>
                             <button
                                 className={`${styles.ConfigureBtn}${Configuring ? ` ${styles.ConfigureBtnBusy}` : ""}`}
@@ -260,7 +279,27 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
                              "Agentic - plans in short slices and writes memory checkpoints"}
                         </div>
 
-                        <div className={styles.Label} style={{ marginBottom: 8 }}>Obsidian Vault Path</div>
+                        <div className={styles.Row} style={{ marginTop: 16, alignItems: "flex-start", flexDirection: "column", gap: 6 }}>
+                            <div className={styles.Label}>On Rate Limit</div>
+                            <div className={styles.RateLimitGroup}>
+                                {(["ask", "always_continue", "always_cancel"] as RateLimitMode[]).map(M => (
+                                    <button
+                                        key={M}
+                                        className={`${styles.RateLimitBtn}${RateLimitMode === M ? ` ${styles.RateLimitBtnActive}` : ""}`}
+                                        onClick={() => HandleRateLimitMode(M)}
+                                    >
+                                        {M === "ask" ? "Ask" : M === "always_continue" ? "Always continue" : "Always cancel"}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className={styles.Hint}>
+                                {RateLimitMode === "ask" ? "Prompts you to wait 60 s and retry, or cancel." :
+                                 RateLimitMode === "always_continue" ? "Automatically waits 60 s and retries, keeps agentic runs unattended." :
+                                 "Stops the task immediately on a rate limit error."}
+                            </div>
+                        </div>
+
+                        <div className={styles.Label} style={{ marginBottom: 8, marginTop: 16 }}>Obsidian Vault Path</div>
                         <input
                             className={styles.VaultInput}
                             type="text"

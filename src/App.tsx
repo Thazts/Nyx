@@ -674,7 +674,6 @@ export const App: React.FC = () => {
 
     const HandleTabClose = useCallback((Path: string) => {
         if (Path.startsWith("viewport:")) StopLiveViewport(Path);
-        // Sync active file content to its tab slot before any restructuring
         const SyncedContent = FileContentRef.current;
 
         SetOpenTabs(Prev => {
@@ -709,8 +708,6 @@ export const App: React.FC = () => {
     const HandleTabSelect = useCallback((Path: string) => {
         const Tab = OpenTabs.find(T => T.Path === Path);
         if (!Tab) return;
-
-        // Sync outgoing tab's content before switching away
         if (ActiveFile && ActiveFile !== Path) {
             const Current = FileContentRef.current;
             SetOpenTabs(Prev => Prev.map(T => T.Path === ActiveFile
@@ -734,8 +731,6 @@ export const App: React.FC = () => {
             SetActiveTabModified(Tab.Content !== Tab.DiskContent);
         }
     }, [OpenTabs, ActiveFile]);
-
-    // No longer updates OpenTabs on every keystroke — syncs on tab switch/close instead
     const HandleContentChange = useCallback((Content: string) => {
         FileContentRef.current = Content;
         SetFileContent(Content);
@@ -1030,8 +1025,6 @@ export const App: React.FC = () => {
     const DisplayLanguage = ActiveFile && !ActiveFile.startsWith("viewport:")
         ? (LangLabels[DetectLanguage(ActiveFileName)] ?? "Plain Text")
         : "—";
-
-    // Unsaved count: active tab uses live ref, others use stale tab content
     const UnsavedCount = OpenTabs.filter(T =>
         T.Path === ActiveFile
             ? ActiveTabModified
@@ -1058,7 +1051,6 @@ export const App: React.FC = () => {
             SetRecentPaths(AddRecentWorkspace(FolderPath));
             SetAppReady(true);
         } catch {
-            // folder may no longer exist — remove from recents
             const Next = GetRecentWorkspaces().filter(P => P !== FolderPath);
             localStorage.setItem(RECENT_KEY, JSON.stringify(Next));
             SetRecentPaths(Next);

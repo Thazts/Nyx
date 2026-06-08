@@ -12,9 +12,9 @@ use tauri::{AppHandle, State};
 use crate::renderer::{window as nyx_window, NyxRenderer};
 use crate::state::{AppState, FileRecord};
 
-const ROBLOX_SHIM: &str = include_str!("../../../nyx_runtime/roblox/init.lua");
-const UNITY_SHIM: &str = include_str!("../../../nyx_runtime/unity/init.cs");
-const UNREAL_SHIM: &str = include_str!("../../../nyx_runtime/unreal/init.cpp");
+const ROBLOX_SHIM: &str = include_str!("../../nyx_runtime/roblox/init.lua");
+const UNITY_SHIM: &str = include_str!("../../nyx_runtime/unity/init.cs");
+const UNREAL_SHIM: &str = include_str!("../../nyx_runtime/unreal/init.cpp");
 
 static SYS_MONITOR: OnceLock<Mutex<System>> = OnceLock::new();
 
@@ -550,8 +550,14 @@ fn RunSceneAtTime(
 
     match profile.as_str() {
         "roblox" => RunLuaSceneAtTime(&path, &UserCode, elapsed),
-        "unity" => RunEmbeddedSceneCommands(&path, &UserCode, "Unity C# shim", UNITY_SHIM),
-        "unreal" => RunEmbeddedSceneCommands(&path, &UserCode, "Unreal C++ shim", UNREAL_SHIM),
+        "unity" => TryRunCSharpScene(&path, &UserCode, elapsed).or_else(|e| {
+            RunEmbeddedSceneCommands(&path, &UserCode, "Unity C# shim", UNITY_SHIM)
+                .map_err(|je| format!("{e}\nFallback (@nyx-scene): {je}"))
+        }),
+        "unreal" => TryRunCppScene(&path, &UserCode, elapsed).or_else(|e| {
+            RunEmbeddedSceneCommands(&path, &UserCode, "Unreal C++ shim", UNREAL_SHIM)
+                .map_err(|je| format!("{e}\nFallback (@nyx-scene): {je}"))
+        }),
         other => Err(format!("Unknown engine profile: '{}'", other)),
     }
 }
@@ -642,6 +648,338 @@ fn RunEmbeddedSceneCommands(
             format!("shim bytes: {}", shim_source.len()),
             "@nyx-scene command block loaded".to_string(),
         ],
+        errors: Vec::new(),
+        skipped: false,
+    })
+}
+
+static DOTNET_AVAILABLE: OnceLock<bool> = OnceLock::new();
+static CPP_COMPILER_CMD: OnceLock<Option<&'static str>> = OnceLock::new();
+static SCENE_EXE_CACHE: OnceLock<Mutex<std::collections::HashMap<String, (u64, PathBuf)>>> =
+    OnceLock::new();
+
+fn SceneExeCache() -> &'static Mutex<std::collections::HashMap<String, (u64, PathBuf)>> {
+    SCENE_EXE_CACHE.get_or_init(|| Mutex::new(Default::default()))
+}
+
+fn NyxTempBuildDir() -> PathBuf {
+    let d = std::env::temp_dir().join("nyx_scene_build");
+    let _ = std::fs::create_dir_all(&d);
+    d
+}
+
+fn IsDotnetAvailable() -> bool {
+    *DOTNET_AVAILABLE.get_or_init(|| {
+        std::process::Command::new("dotnet")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+}
+
+fn CppCompiler() -> Option<&'static str> {
+    *CPP_COMPILER_CMD.get_or_init(|| {
+        for &cmd in &["g++", "clang++"] {
+            let ok = std::process::Command::new(cmd)
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok();
+            if ok {
+                return Some(cmd);
+            }
+        }
+        if std::process::Command::new("cl")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok()
+        {
+            return Some("cl");
+        }
+        None
+    })
+}
+
+fn SourceHash(shim: &str, code: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in shim.as_bytes().iter().chain(code.as_bytes()) {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+fn TryRunCSharpScene(
+    path: &str,
+    UserCode: &str,
+    elapsed: Option<f64>,
+) -> Result<RunSceneResult, String> {
+    if !IsDotnetAvailable() {
+        return Err(
+            "No C# compiler: dotnet SDK not found in PATH. \
+             Install the .NET SDK or add a @nyx-scene block."
+                .to_string(),
+        );
+    }
+
+    let hash = SourceHash(UNITY_SHIM, UserCode);
+    let cached_exe = {
+        let cache = SceneExeCache().lock().unwrap();
+        if let Some((h, p)) = cache.get(path) {
+            if *h == hash && p.exists() {
+                Some(p.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    let ExePath = match cached_exe {
+        Some(p) => p,
+        None => {
+            let p = CompileCSharp(UserCode, hash)?;
+            SceneExeCache()
+                .lock()
+                .unwrap()
+                .insert(path.to_string(), (hash, p.clone()));
+            p
+        }
+    };
+
+    RunCompiledScene(&ExePath, elapsed, "Unity C# (dotnet)")
+}
+
+fn CompileCSharp(UserCode: &str, hash: u64) -> Result<PathBuf, String> {
+    let BuildDir = NyxTempBuildDir().join(format!("cs_{:016x}", hash));
+    std::fs::create_dir_all(&BuildDir).map_err(|e| format!("mkdir: {e}"))?;
+
+    std::fs::write(BuildDir.join("NyxShim.cs"), UNITY_SHIM)
+        .map_err(|e| format!("write shim: {e}"))?;
+
+    let SceneCs = format!(
+        "using UnityEngine;\n\
+         double __elapsed = args.Length > 0\n\
+             ? double.Parse(args[0], \
+               System.Globalization.CultureInfo.InvariantCulture)\n\
+             : 0.0;\n\
+         {}\n\
+         Console.Write(NyxRuntime.CommandsToJson());\n",
+        UserCode
+    );
+    std::fs::write(BuildDir.join("NyxScene.cs"), &SceneCs)
+        .map_err(|e| format!("write scene: {e}"))?;
+
+    std::fs::write(
+        BuildDir.join("NyxScene.csproj"),
+        concat!(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n",
+            "  <PropertyGroup>\n",
+            "    <OutputType>Exe</OutputType>\n",
+            "    <TargetFramework>net8.0</TargetFramework>\n",
+            "    <Nullable>disable</Nullable>\n",
+            "    <ImplicitUsings>disable</ImplicitUsings>\n",
+            "    <NoWarn>CS0219;CS8600;CS8602;CS8604</NoWarn>\n",
+            "  </PropertyGroup>\n",
+            "</Project>\n",
+        ),
+    )
+    .map_err(|e| format!("write csproj: {e}"))?;
+
+    let out = std::process::Command::new("dotnet")
+        .args([
+            "build",
+            "--output",
+            BuildDir.to_str().unwrap_or("."),
+            "--configuration",
+            "Release",
+            "--nologo",
+            "-v",
+            "quiet",
+        ])
+        .current_dir(&BuildDir)
+        .output()
+        .map_err(|e| format!("dotnet build: {e}"))?;
+
+    if !out.status.success() {
+        return Err(format!(
+            "C# compile error:\n{}{}",
+            String::from_utf8_lossy(&out.stdout).trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+
+    for name in &["NyxScene.exe", "NyxScene", "NyxScene.dll"] {
+        let p = BuildDir.join(name);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    Err(format!("C# compile: no output in {}", BuildDir.display()))
+}
+
+fn TryRunCppScene(
+    path: &str,
+    UserCode: &str,
+    elapsed: Option<f64>,
+) -> Result<RunSceneResult, String> {
+    let compiler = CppCompiler().ok_or_else(|| {
+        "No C++ compiler: g++/clang++/cl not found in PATH. \
+         Install one or add a @nyx-scene block."
+            .to_string()
+    })?;
+
+    let hash = SourceHash(UNREAL_SHIM, UserCode);
+    let cached_exe = {
+        let cache = SceneExeCache().lock().unwrap();
+        if let Some((h, p)) = cache.get(path) {
+            if *h == hash && p.exists() {
+                Some(p.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    let ExePath = match cached_exe {
+        Some(p) => p,
+        None => {
+            let p = CompileCpp(UserCode, hash, compiler)?;
+            SceneExeCache()
+                .lock()
+                .unwrap()
+                .insert(path.to_string(), (hash, p.clone()));
+            p
+        }
+    };
+
+    RunCompiledScene(&ExePath, elapsed, &format!("Unreal C++ ({})", compiler))
+}
+
+fn CompileCpp(UserCode: &str, hash: u64, compiler: &str) -> Result<PathBuf, String> {
+    let BuildDir = NyxTempBuildDir().join(format!("cpp_{:016x}", hash));
+    std::fs::create_dir_all(&BuildDir).map_err(|e| format!("mkdir: {e}"))?;
+
+    let ExeName = if cfg!(target_os = "windows") {
+        "NyxScene.exe"
+    } else {
+        "NyxScene"
+    };
+    let ExePath = BuildDir.join(ExeName);
+    let FullCpp = format!(
+        "#include <iostream>\n\
+         {}\n\
+         static void __NyxScene__(double __elapsed, NyxUnreal::UWorld& World) {{\n\
+         {}\n\
+         }}\n\
+         int main(int argc, char** argv) {{\n\
+             double __elapsed = argc > 1 ? std::stod(argv[1]) : 0.0;\n\
+             NyxUnreal::UWorld World;\n\
+             __NyxScene__(__elapsed, World);\n\
+             std::cout << World.CommandsToJson() << std::flush;\n\
+             return 0;\n\
+         }}\n",
+        UNREAL_SHIM, UserCode
+    );
+
+    let SrcPath = BuildDir.join("NyxScene.cpp");
+    std::fs::write(&SrcPath, &FullCpp).map_err(|e| format!("write cpp: {e}"))?;
+
+    let out = if compiler == "cl" {
+        std::process::Command::new("cl")
+            .args([
+                "/std:c++17",
+                "/EHsc",
+                "/O2",
+                "/nologo",
+                &format!("/Fe:{}", ExePath.display()),
+                SrcPath.to_str().unwrap_or("NyxScene.cpp"),
+            ])
+            .current_dir(&BuildDir)
+            .output()
+            .map_err(|e| format!("cl: {e}"))?
+    } else {
+        std::process::Command::new(compiler)
+            .args([
+                "-std=c++17",
+                "-O2",
+                "-o",
+                ExePath.to_str().unwrap_or("NyxScene"),
+                SrcPath.to_str().unwrap_or("NyxScene.cpp"),
+            ])
+            .output()
+            .map_err(|e| format!("{compiler}: {e}"))?
+    };
+
+    if !out.status.success() {
+        return Err(format!(
+            "C++ compile error:\n{}{}",
+            String::from_utf8_lossy(&out.stdout).trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+
+    if ExePath.exists() {
+        return Ok(ExePath);
+    }
+    Err(format!("C++ compile: no output at {}", ExePath.display()))
+}
+
+fn RunCompiledScene(
+    ExePath: &Path,
+    elapsed: Option<f64>,
+    label: &str,
+) -> Result<RunSceneResult, String> {
+    let IsDll = ExePath.extension().and_then(|e| e.to_str()) == Some("dll");
+    let mut cmd = if IsDll {
+        let mut c = std::process::Command::new("dotnet");
+        c.arg(ExePath);
+        c
+    } else {
+        std::process::Command::new(ExePath)
+    };
+
+    if let Some(e) = elapsed {
+        cmd.arg(format!("{:.6}", e));
+    }
+
+    let out = cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|e| format!("run scene ({label}): {e}"))?;
+
+    if !out.status.success() {
+        return Err(format!(
+            "{label} runtime error:\n{}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+
+    let JsonStr = String::from_utf8_lossy(&out.stdout);
+    let value: serde_json::Value = serde_json::from_str(JsonStr.trim()).map_err(|e| {
+        format!(
+            "{label}: invalid JSON output: {e}\nOutput: {}",
+            JsonStr.trim()
+        )
+    })?;
+
+    let commands = match value {
+        serde_json::Value::Array(items) => items,
+        other => vec![other],
+    };
+
+    Ok(RunSceneResult {
+        commands,
+        terminal: vec![format!("runtime: {}", label)],
         errors: Vec::new(),
         skipped: false,
     })
@@ -1031,9 +1369,6 @@ fn DistRaySegment(
     let dp = w + u * sc - v * tc;
     dp.length()
 }
-
-// t on the infinite line (line_o + t*line_d) closest to the given ray — used
-// for axis-constrained gizmo drag; delta t equals world-space displacement along the axis.
 fn ClosestTOnLine(
     ray_o: glam::Vec3,
     ray_d: glam::Vec3,
@@ -1471,8 +1806,6 @@ pub fn renderer_attach(
     .map_err(|e| e.to_string())
 }
 
-// ── Undo helper ───────────────────────────────────────────────────────────────
-
 fn PushUndo(state: &crate::renderer::SceneState, undo: &mut crate::renderer::UndoHistory) {
     undo.undo_stack.push(state.commands.clone());
     if undo.undo_stack.len() > 50 {
@@ -1480,8 +1813,6 @@ fn PushUndo(state: &crate::renderer::SceneState, undo: &mut crate::renderer::Und
     }
     undo.redo_stack.clear();
 }
-
-// ── Part inspector ────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn renderer_get_part(
@@ -1544,7 +1875,6 @@ pub fn renderer_set_part_properties(
             if let Some(rz) = rot.get("RZ") {
                 NewCf["RZ"] = rz.clone();
             }
-            // Keep translation in CFrame synced to Position
             if let Some(pos) = cmd.get("Position") {
                 NewCf["X"] = pos.get("X").cloned().unwrap_or(serde_json::json!(0.0));
                 NewCf["Y"] = pos.get("Y").cloned().unwrap_or(serde_json::json!(0.0));
@@ -1562,8 +1892,6 @@ pub fn renderer_set_part_properties(
     Ok(())
 }
 
-// ── Gizmo mode ────────────────────────────────────────────────────────────────
-
 #[tauri::command]
 pub fn renderer_set_gizmo_mode(
     mode: String,
@@ -1577,8 +1905,6 @@ pub fn renderer_set_gizmo_mode(
     *app_state.gizmo_mode.lock().map_err(|e| e.to_string())? = mode;
     Ok(())
 }
-
-// ── Rotate drag ───────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn renderer_rotate_drag(
@@ -1732,8 +2058,6 @@ pub fn renderer_rotate_drag(
     Ok(result)
 }
 
-// ── Scale drag ────────────────────────────────────────────────────────────────
-
 #[tauri::command]
 pub fn renderer_scale_drag(
     axis: String,
@@ -1836,8 +2160,6 @@ pub fn renderer_scale_drag(
     Ok(result)
 }
 
-// ── Undo / Redo ───────────────────────────────────────────────────────────────
-
 #[tauri::command]
 pub fn renderer_undo(renderer: State<'_, RendererState>) -> Result<(), String> {
     let r = renderer.lock().map_err(|e| e.to_string())?;
@@ -1874,8 +2196,6 @@ pub fn renderer_redo(renderer: State<'_, RendererState>) -> Result<(), String> {
     Ok(())
 }
 
-// ── Delete part ───────────────────────────────────────────────────────────────
-
 #[tauri::command]
 pub fn renderer_delete_part(id: String, renderer: State<'_, RendererState>) -> Result<(), String> {
     let r = renderer.lock().map_err(|e| e.to_string())?;
@@ -1898,8 +2218,6 @@ pub fn renderer_delete_part(id: String, renderer: State<'_, RendererState>) -> R
     s.dirty = true;
     Ok(())
 }
-
-// ── Frame selected ────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn renderer_frame_selected(renderer: State<'_, RendererState>) -> Result<(), String> {
@@ -1938,7 +2256,6 @@ pub fn renderer_frame_selected(renderer: State<'_, RendererState>) -> Result<(),
         TargetPos = FoundPos;
         TargetSize = FoundSize;
     } else {
-        // Frame all: compute AABB center of all parts
         let mut min = glam::Vec3::splat(f32::MAX);
         let mut max = glam::Vec3::splat(f32::MIN);
         let mut any = false;
@@ -1984,8 +2301,6 @@ pub fn renderer_frame_selected(renderer: State<'_, RendererState>) -> Result<(),
     Ok(())
 }
 
-// ── End drag (resets undo flag) ───────────────────────────────────────────────
-
 #[tauri::command]
 pub fn renderer_end_drag(renderer: State<'_, RendererState>) -> Result<(), String> {
     let r = renderer.lock().map_err(|e| e.to_string())?;
@@ -1994,13 +2309,12 @@ pub fn renderer_end_drag(renderer: State<'_, RendererState>) -> Result<(), Strin
     Ok(())
 }
 
-// ── AI ────────────────────────────────────────────────────────────────────────
-
 use zeroize::Zeroizing;
 
 const KEYRING_SERVICE: &str = "nyx-ide";
 const KEYRING_ANTHROPIC: &str = "anthropic";
 const KEYRING_DEEPSEEK: &str = "deepseek";
+const KEYRING_OPENAI: &str = "openai";
 
 fn KrExists(account: &str) -> bool {
     keyring::Entry::new(KEYRING_SERVICE, account)
@@ -2026,6 +2340,7 @@ pub struct AiChatMessage {
 pub struct AiConfigStatus {
     pub anthropic_key_set: bool,
     pub deepseek_key_set: bool,
+    pub openai_key_set: bool,
 }
 
 #[derive(Serialize, serde::Deserialize, Clone, Default)]
@@ -2036,6 +2351,8 @@ pub struct AppSettings {
     pub obsidian_vault_path: Option<String>,
     #[serde(default = "DefaultAiMode")]
     pub ai_mode: String,
+    #[serde(default)]
+    pub rate_limit_auto_continue: Option<bool>,
 }
 
 fn DefaultProvider() -> String {
@@ -2076,7 +2393,8 @@ pub fn save_app_settings(settings: AppSettings) -> Result<(), String> {
 pub fn ai_get_config() -> AiConfigStatus {
     AiConfigStatus {
         anthropic_key_set: KrExists(KEYRING_ANTHROPIC),
-        deepseek_key_set: KrExists(KEYRING_DEEPSEEK),
+        deepseek_key_set:  KrExists(KEYRING_DEEPSEEK),
+        openai_key_set:    KrExists(KEYRING_OPENAI),
     }
 }
 
@@ -2154,17 +2472,22 @@ pub async fn ai_start_agent(
     messages: Vec<AiChatMessage>,
     workspace: Option<String>,
     mode: String,
+    skills: Option<Vec<String>>,
     window: tauri::Window,
     approval: State<'_, Arc<Mutex<agent::ApprovalState>>>,
 ) -> Result<(), String> {
-    let (ApiKey, model, is_anthropic) = match provider.as_str() {
+    let (ApiKey, model) = match provider.as_str() {
         "anthropic" => {
             let k = KrGet(KEYRING_ANTHROPIC).ok_or("Anthropic API key not configured")?;
-            (k, "claude-sonnet-4-6".to_string(), true)
+            (k, "claude-sonnet-4-6".to_string())
         }
         "deepseek" => {
             let k = KrGet(KEYRING_DEEPSEEK).ok_or("DeepSeek API key not configured")?;
-            (k, "deepseek-chat".to_string(), false)
+            (k, "deepseek-chat".to_string())
+        }
+        "openai" => {
+            let k = KrGet(KEYRING_OPENAI).ok_or("OpenAI API key not configured")?;
+            (k, "gpt-4o".to_string())
         }
         _ => return Err(format!("Unknown provider: {provider}")),
     };
@@ -2201,18 +2524,27 @@ pub async fn ai_start_agent(
         .collect();
 
     let AgentMode = agent::AgentMode::FromStr(&mode);
-    let system = agent::BuildSystemPrompt(workspace.as_deref(), &AgentMode);
+    let Resolved = crate::skills::Resolve(&skills.unwrap_or_default());
+    for (skill_id, reason) in &Resolved.blocked {
+        let _ = window.emit("ai_event", serde_json::json!({
+            "type": "skill_blocked",
+            "skill_id": skill_id,
+            "reason": reason,
+        }));
+    }
+    let system = agent::BuildSystemPrompt(workspace.as_deref(), &AgentMode, &Resolved.loaded, &provider);
 
     let result = agent::RunAgent(
         ApiMessages,
         system,
         &ApiKey,
         &model,
-        is_anthropic,
+        &provider,
         ToolSettings,
         Arc::clone(&*approval),
         AgentMode,
         window.clone(),
+        settings.rate_limit_auto_continue,
     )
     .await;
 
@@ -2238,5 +2570,16 @@ pub fn ai_question_respond(
     let mut state = approval.lock().unwrap();
     if let Some(tx) = state.pending_question.take() {
         let _ = tx.send(response);
+    }
+}
+
+#[tauri::command]
+pub fn ai_rate_limit_respond(
+    approved: bool,
+    approval: State<'_, Arc<Mutex<agent::ApprovalState>>>,
+) {
+    let mut state = approval.lock().unwrap();
+    if let Some(tx) = state.pending_rate_limit.take() {
+        let _ = tx.send(approved);
     }
 }
