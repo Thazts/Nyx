@@ -125,15 +125,8 @@ pub fn run_scene(path: String, profile: String) -> Result<RunSceneResult, String
     RunSceneAtTime(path, profile, None)
 }
 
-// ============================ Live scene loop ===============================
-// The live viewport used to be driven from the webview: a JS timer invoked
-// run_live_scene, got the command list back over IPC, and sent it through a
-// second invoke into the renderer — two full JSON round-trips per tick, capped
-// at ~30 fps with a harsh backoff. The loop now lives on a backend thread and
-// applies commands directly to renderer state, so it sustains 60 fps.
 
 const LIVE_TICK_FPS: f32 = 60.0;
-// How long live reloads stay paused after the user edits an object.
 const LIVE_EDIT_GATE: std::time::Duration = std::time::Duration::from_millis(140);
 
 pub struct LiveSession {
@@ -169,8 +162,6 @@ pub fn start_live_scene(
 #[tauri::command]
 pub fn stop_live_scene(path: Option<String>, live: State<'_, LiveSceneState>) -> Result<(), String> {
     let mut guard = live.0.lock().map_err(|e| e.to_string())?;
-    // With a path, only stop the session that path owns — closing a stale
-    // viewport tab must not kill a newer session. Without one, stop anything.
     let Owns = match (&path, guard.as_ref()) {
         (Some(P), Some(Session)) => Session.path == *P,
         (None, Some(_)) => true,
@@ -198,10 +189,6 @@ fn LiveSceneLoop(
 
     while !stop.load(Ordering::Relaxed) {
         let TickStart = std::time::Instant::now();
-
-        // Skip the Lua work entirely while the viewport is hidden (tab not
-        // active) or the user is mid-edit. Elapsed time is wall-clock, so the
-        // scene stays in sync when it resumes.
         let Paused = {
             let renderer = app.state::<RendererState>();
             let Held = renderer.lock().ok().and_then(|r| {
@@ -815,8 +802,6 @@ fn LuaDisplay(v: &LuaValue) -> String {
         _ => "(value)".to_string(),
     }
 }
-
-// ── Model file loading ────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn load_model_file(path: String) -> Result<RunSceneResult, String> {

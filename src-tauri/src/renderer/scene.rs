@@ -14,16 +14,12 @@ const MSAA_SAMPLES: u32 = 4;
 const GIZMO_MAX_VERTS: usize = 512;
 const INITIAL_INSTANCE_CAPACITY: u32 = 256;
 
-// WGSL has no include mechanism; every scene shader shares the camera uniform
-// and lighting helpers by prepending common.wgsl at pipeline creation.
 macro_rules! SceneShader {
     ($File:literal) => {
         concat!(include_str!("shaders/common.wgsl"), include_str!($File))
     };
 }
 
-// One instanced batch per primitive shape: unit-space geometry built once,
-// per-part transforms and colors streamed into a growable instance buffer.
 struct ShapeBatch {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
@@ -33,9 +29,6 @@ struct ShapeBatch {
     instance_count: u32,
 }
 
-// AddMesh draws cached by command Id. Geometry lives on the GPU in local
-// space, so an unchanged command costs nothing, a moved/recolored one is a
-// single small instance write, and only edited geometry rebuilds buffers.
 struct CachedMesh {
     command: serde_json::Value,
     draw: MeshDraw,
@@ -310,16 +303,12 @@ impl SceneRenderer {
                         Some(Id) => Id.to_string(),
                         None => format!("auto:{Index}"),
                     };
-                    // Duplicate ids would otherwise collapse into one slot.
                     while !UsedKeys.insert(Key.clone()) {
                         Key.push('+');
                     }
 
                     match self.mesh_cache.get_mut(&Key) {
-                        // Untouched command: GPU state is already correct.
                         Some(Cached) if Cached.command == *cmd => {}
-                        // Same geometry, new transform/color (a drag, most
-                        // commonly): one small instance write, no rebuild.
                         Some(Cached) if SameGeometry(&Cached.command, cmd) => {
                             queue.write_buffer(
                                 &Cached.draw.instance_buf,
@@ -385,7 +374,7 @@ impl SceneRenderer {
             None => return,
         };
         let mut verts = gizmo::BuildGizmoVerts(id, SelectedFace, commands, gizmo_mode);
-        verts.truncate(GIZMO_MAX_VERTS & !1); // buffer capacity; LineList needs pairs
+        verts.truncate(GIZMO_MAX_VERTS & !1);
         if verts.is_empty() {
             return;
         }
@@ -438,14 +427,10 @@ impl SceneRenderer {
                 occlusion_query_set: None,
             });
 
-            // All pipelines share scene.layout, so one bind covers the pass.
             pass.set_bind_group(0, &self.camera_bind_grp, &[]);
 
             pass.set_pipeline(&self.sky_pipeline);
             pass.draw(0..3, 0..1);
-
-            // Parts and meshes share the instanced pipeline; meshes are just
-            // single-instance draws with their own geometry buffers.
             let HasParts = self.shape_batches.iter().any(|b| b.instance_count > 0);
             if HasParts || !self.mesh_order.is_empty() {
                 pass.set_pipeline(&self.part_pipeline);
@@ -575,8 +560,6 @@ fn MakeMsaa(
 mod tests {
     use super::*;
 
-    // WGSL only validates at pipeline creation, so build every scene pipeline
-    // against a real headless device.
     #[test]
     fn ShadersAndPipelinesValidate() {
         let instance = wgpu::Instance::default();

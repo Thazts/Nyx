@@ -1,7 +1,3 @@
-// Procedural sky gradient, drawn first as a fullscreen triangle with depth
-// writes off. Derives zenith/horizon/ground bands and a sun glow (aligned with
-// the lighting rig's key light) from the SetSkybox base color.
-
 struct SkyOut {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0)       ndc:      vec2<f32>,

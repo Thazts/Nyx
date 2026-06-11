@@ -80,9 +80,6 @@ thread_local! {
     static GIZMO_AXIS: RefCell<String>    = RefCell::new(String::new());
 }
 
-// Only object edits (gizmo drags) arm the live-reload gate. Camera moves
-// (orbit/pan/zoom/fly) must never call this, or script playback freezes
-// whenever the camera is in motion.
 fn MarkEditInteraction() {
     if let Some(sa) = VP_STATE.get() {
         if let Ok(mut s) = sa.lock() {

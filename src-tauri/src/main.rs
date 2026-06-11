@@ -2,7 +2,6 @@
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
-// PascalCase is the project-wide naming convention (Thazts Framework).
 #![allow(non_snake_case)]
 
 use std::sync::{Arc, Mutex};

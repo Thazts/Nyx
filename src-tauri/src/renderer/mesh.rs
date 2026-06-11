@@ -16,19 +16,12 @@ pub(crate) struct Instance {
     pub color: [f32; 3],
     pub rotation: [f32; 4],
 }
-
-// AddMesh geometry stays in local space on the GPU; position/size/rotation and
-// color ride in a single-entry instance buffer so moving a mesh is a tiny
-// buffer write instead of a full vertex rebuild.
 pub(crate) struct MeshDraw {
     pub vertex_buf: wgpu::Buffer,
     pub index_buf: wgpu::Buffer,
     pub index_count: u32,
     pub instance_buf: wgpu::Buffer,
 }
-
-// Reads the shared Position/Size/Color/CFrame fields of a scene command into
-// instance data. Defaults differ between AddPart and AddMesh callers.
 pub(crate) fn ReadInstance(
     Command: &serde_json::Value,
     DefaultSize: [f32; 3],
@@ -77,9 +70,6 @@ pub(crate) fn ReadVec3(Value: Option<&serde_json::Value>, Fallback: [f32; 3]) ->
         ReadF32(Value, "Z", Fallback[2]),
     ]
 }
-
-// Colors use R/G/B keys everywhere in the command pipeline (scene_runner,
-// SetPartProperties, SetSkybox) — never X/Y/Z.
 pub(crate) fn ReadColor(Value: Option<&serde_json::Value>, Fallback: [f32; 3]) -> [f32; 3] {
     [
         ReadF32(Value, "R", Fallback[0]),
@@ -342,9 +332,6 @@ pub(crate) fn TorusMesh() -> (Vec<Vertex>, Vec<u32>) {
     (Vertices, Indices)
 }
 
-// Primitive part shapes, drawn as instanced batches (one unit mesh per shape,
-// transform and color supplied per instance). Index 0 is the Block batch and
-// doubles as the fallback for unrecognized shape names.
 pub(crate) const SHAPE_COUNT: usize = 6;
 
 pub(crate) fn ShapeIndex(Shape: &str) -> usize {
@@ -369,8 +356,6 @@ pub(crate) fn UnitShapeMesh(Index: usize) -> (Vec<Vertex>, Vec<u32>) {
     }
 }
 
-// Builds local-space AddMesh geometry; the command's transform and color are
-// applied per instance at draw time (see ReadInstance), never baked in here.
 pub(crate) fn BuildMeshGeometry(Command: &serde_json::Value) -> Option<(Vec<Vertex>, Vec<u32>)> {
     let SourceVertices = Command.get("Vertices")?.as_array()?;
     let mut Points = Vec::with_capacity(SourceVertices.len());
@@ -472,8 +457,6 @@ pub(crate) fn MakeMeshDraw(
 mod tests {
     use super::*;
 
-    // Colors broke once already by being read with X/Y/Z keys; the whole
-    // command pipeline (scene_runner, SetPartProperties) emits R/G/B.
     #[test]
     fn ReadInstanceReadsRgbColorKeys() {
         let cmd = serde_json::json!({

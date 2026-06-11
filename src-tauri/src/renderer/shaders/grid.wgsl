@@ -1,6 +1,3 @@
-// Ground-plane reference grid, alpha-blended over the scene.
-// Camera uniform comes from common.wgsl.
-
 struct VertexIn {
     @location(0) position: vec3<f32>,
 }
@@ -17,8 +14,6 @@ fn vs_main(in: VertexIn) -> VertexOut {
     out.world_pos = in.position;
     return out;
 }
-
-// Anti-aliased line coverage for one grid level, per axis.
 fn grid_coverage(world: vec2<f32>, spacing: f32, deriv: vec2<f32>, width: f32) -> f32 {
     let dist = abs(world - round(world / spacing) * spacing);
     let coverage = vec2<f32>(1.0) - smoothstep(vec2<f32>(0.0), deriv * width, dist);
@@ -32,7 +27,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
     let major = grid_coverage(world, 1.0, deriv, 1.5);
 
-    // Fade the fine grid out before its lines shrink below a pixel and alias.
     let minor_fade = 1.0 - smoothstep(0.02, 0.05, max(deriv.x, deriv.y));
     let minor = grid_coverage(world, 0.1, deriv, 1.0) * minor_fade;
 

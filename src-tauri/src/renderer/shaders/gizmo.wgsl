@@ -1,6 +1,3 @@
-// Selection/transform gizmo lines, drawn over the scene with depth test off.
-// Camera uniform comes from common.wgsl.
-
 struct VertexIn {
     @location(0) position: vec3<f32>,
     @location(1) color:    vec3<f32>,

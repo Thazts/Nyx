@@ -1,10 +1,3 @@
-// Shared scene shader prelude. WGSL has no include mechanism, so this file is
-// concatenated in front of every scene shader at pipeline creation (scene.rs).
-//
-// The surface format is sRGB: the hardware applies the gamma transfer curve on
-// write, so every shader here works in linear space and must NOT gamma-encode
-// its output manually.
-
 struct Camera {
     view_proj:     mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
@@ -14,7 +7,6 @@ struct Camera {
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 
-// Fixed three-point light rig (pre-normalized directions).
 const KEY_DIR:    vec3<f32> = vec3<f32>(0.4788, 0.8179, 0.3192);
 const FILL_DIR:   vec3<f32> = vec3<f32>(-0.7247, 0.3623, -0.5861);
 const BOUNCE_DIR: vec3<f32> = vec3<f32>(0.2086, -0.8345, -0.5100);
@@ -24,7 +16,6 @@ fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     return pow(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(2.2));
 }
 
-// ACES filmic fit (Narkowicz). Output stays linear for the sRGB surface.
 fn tonemap(color: vec3<f32>) -> vec3<f32> {
     let mapped = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
     return clamp(mapped, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -37,8 +28,6 @@ fn lit_surface(base: vec3<f32>, normal: vec3<f32>, world_pos: vec3<f32>) -> vec3
     let diffuse = max(dot(n, KEY_DIR), 0.0);
     let fill    = max(dot(n, FILL_DIR), 0.0) * 0.30;
     let bounce  = max(dot(n, BOUNCE_DIR), 0.0) * 0.18;
-
-    // Hemisphere ambient picks up the skybox tint so parts sit in the scene.
     let sky_tint = mix(vec3<f32>(0.70, 0.76, 0.82), camera.sky_color, 0.35);
     let ground_tint = vec3<f32>(0.26, 0.25, 0.24);
     let hemi = mix(ground_tint, sky_tint, n.y * 0.5 + 0.5);

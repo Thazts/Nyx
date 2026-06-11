@@ -1,7 +1,3 @@
-// Instanced primitive parts (Block, Sphere, Cylinder, Cone, Wedge, Torus).
-// Unit-space shape geometry is scaled/rotated/translated per instance.
-// Camera uniform and lit_surface come from common.wgsl.
-
 struct VertexIn {
     @location(0) position:      vec3<f32>,
     @location(1) normal:        vec3<f32>,

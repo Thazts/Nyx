@@ -19,7 +19,6 @@ pub struct CameraInput {
     pub pan_dx: f32,
     pub pan_dy: f32,
     pub zoom: f32,
-    // WASD movement (accumulated per frame)
     pub forward: f32,
     pub right: f32,
     pub up: f32,
@@ -45,10 +44,6 @@ pub struct SceneState {
     pub gizmo_mode: String,
     pub drag_undo_pushed: bool,
     pub skip_camera_meta: bool,
-    // Last time the user edited scene objects (gizmo drags, property edits).
-    // Live scene reloads pause briefly after this so they don't clobber an
-    // in-progress edit. Camera navigation must NOT touch it — arming it on
-    // orbit/pan/zoom froze script playback whenever the camera moved.
     pub last_edit_interaction: Instant,
 }
 
@@ -124,11 +119,6 @@ impl NyxRenderer {
 }
 
 const MAX_FPS: f32 = 240.0;
-// Scene rebuilds (command snapshot + GPU upload) are far heavier than a
-// camera-only redraw and briefly hold the state lock that live-scene and
-// input commands also need. Physics keeps the scene dirty every iteration
-// while bodies are awake, so rebuilds get their own, lower cadence cap —
-// otherwise script playback (tweens) starves on lock contention.
 const MAX_REBUILD_FPS: f32 = 120.0;
 
 fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex<CameraInput>>) {
@@ -243,8 +233,6 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex
         if visible && render.width > 0 && render.height > 0 {
             camera.aspect = render.width as f32 / render.height as f32;
             if needs_render {
-                // The shaders work in linear space behind an sRGB surface, so
-                // the authored sky color converts once per rendered frame.
                 let SkyLinear = wgpu::Color {
                     r: sky.r.powf(2.2),
                     g: sky.g.powf(2.2),
@@ -253,11 +241,6 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex
                 };
                 {
                     let mut s = state.lock().unwrap();
-                    // If new commands landed while this frame was prepared,
-                    // they may carry their own camera (SetCamera / frame
-                    // selected); leave s.camera alone and let the next
-                    // iteration pick everything up. Still render below —
-                    // skipping frames here is what caused drag stutter.
                     if !s.dirty {
                         if dirty && !s.skip_camera_meta {
                             s.skip_camera_meta = true;
@@ -265,8 +248,6 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex
                         s.camera = camera.clone();
                     }
                 }
-                // Render outside the state lock so a vsync wait in present()
-                // never blocks input/command handlers.
                 let uniform = camera.ToUniform([
                     SkyLinear.r as f32,
                     SkyLinear.g as f32,
@@ -274,14 +255,10 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex
                 ]);
                 SceneRenderer.UpdateCamera(&render.queue, &uniform);
                 SceneRenderer.render(&render.surface.0, &render.device, &render.queue, SkyLinear);
-
-                // Frame pacing: cap at MAX_FPS, measured from loop start.
                 std::thread::sleep(FrameBudget.saturating_sub(now.elapsed()).max(
                     std::time::Duration::from_millis(1),
                 ));
             } else if RebuildPending {
-                // A rebuild was deferred by MAX_REBUILD_FPS; check back soon
-                // instead of idling a full tick.
                 std::thread::sleep(std::time::Duration::from_millis(2));
             } else {
                 if let Ok(mut s) = state.try_lock() {

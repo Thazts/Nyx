@@ -544,11 +544,6 @@ pub fn WrapResult(tool: &str, content: &str) -> String {
     )
 }
 
-// ─── Dev profiler ─────────────────────────────────────────────────────────────
-// DEV ONLY active in debug builds (cargo tauri dev / cargo build).
-// Excluded from release builds automatically via #[cfg(debug_assertions)].
-// Logs the full provider request/response cycle to a timestamped file in %TEMP%.
-
 mod dev_profiler {
     use std::io::Write;
 

@@ -142,8 +142,6 @@ pub fn get_app_state_snapshot(app_state: State<'_, AppState>) -> Result<AppState
     })
 }
 
-// ── Keyring ───────────────────────────────────────────────────────────────────
-
 const KEYRING_SERVICE: &str = "nyx-ide";
 const KEYRING_ANTHROPIC: &str = "anthropic";
 const KEYRING_DEEPSEEK: &str = "deepseek";
@@ -162,8 +160,6 @@ fn KrGet(account: &str) -> Option<Zeroizing<String>> {
         .and_then(|e| e.get_password().ok())
         .map(Zeroizing::new)
 }
-
-// ── AI settings ───────────────────────────────────────────────────────────────
 
 #[derive(serde::Deserialize)]
 pub struct AiChatMessage {
@@ -223,8 +219,6 @@ pub fn save_app_settings(settings: AppSettings) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
 }
-
-// ── AI commands ───────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn ai_get_config() -> AiConfigStatus {

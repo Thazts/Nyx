@@ -814,9 +814,6 @@ pub fn renderer_load_scene(
     Ok(())
 }
 
-// Applies a freshly evaluated live scene to the renderer. Called from the
-// backend live-scene loop (scene_runner) — there is no IPC on this path.
-// Returns false when the update was dropped because the user is mid-edit.
 pub(crate) fn ApplyLiveScene(
     renderer: &RendererState,
     app_state: &AppState,
