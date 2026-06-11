@@ -2,6 +2,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub mod camera;
+pub mod gizmo;
+pub mod mesh;
 pub mod physics;
 pub mod pipeline;
 pub mod scene;
@@ -24,6 +26,12 @@ pub struct CameraInput {
 }
 
 #[derive(Debug, Clone)]
+pub struct SelectedFace {
+    pub part_id: String,
+    pub face_index: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct SceneState {
     pub commands: Vec<serde_json::Value>,
     pub profile: String,
@@ -33,10 +41,15 @@ pub struct SceneState {
     pub dirty: bool,
     pub camera: OrbitalCamera,
     pub selected: Option<String>,
+    pub selected_face: Option<SelectedFace>,
     pub gizmo_mode: String,
     pub drag_undo_pushed: bool,
     pub skip_camera_meta: bool,
-    pub last_interaction: Instant,
+    // Last time the user edited scene objects (gizmo drags, property edits).
+    // Live scene reloads pause briefly after this so they don't clobber an
+    // in-progress edit. Camera navigation must NOT touch it — arming it on
+    // orbit/pan/zoom froze script playback whenever the camera moved.
+    pub last_edit_interaction: Instant,
 }
 
 impl Default for SceneState {
@@ -50,32 +63,35 @@ impl Default for SceneState {
             dirty: false,
             camera: OrbitalCamera::default(),
             selected: None,
+            selected_face: None,
             gizmo_mode: "move".to_string(),
             drag_undo_pushed: false,
             skip_camera_meta: false,
-            last_interaction: Instant::now(),
+            last_edit_interaction: Instant::now() - std::time::Duration::from_secs(60),
         }
     }
 }
 
+#[derive(Default)]
 pub struct UndoHistory {
     pub undo_stack: Vec<Vec<serde_json::Value>>,
     pub redo_stack: Vec<Vec<serde_json::Value>>,
 }
 
-impl Default for UndoHistory {
-    fn default() -> Self {
-        Self {
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-        }
-    }
-}
 pub struct NyxRenderer {
     pub hwnd: isize,
     pub state: Arc<Mutex<SceneState>>,
     pub camera_input: Arc<Mutex<CameraInput>>,
     pub undo: Arc<Mutex<UndoHistory>>,
+}
+
+struct DirtySceneSnapshot {
+    commands: Vec<serde_json::Value>,
+    selected: Option<String>,
+    selected_face: Option<SelectedFace>,
+    gizmo_mode: String,
+    skip_camera_meta: bool,
+    camera: OrbitalCamera,
 }
 
 impl NyxRenderer {
@@ -107,6 +123,14 @@ impl NyxRenderer {
     }
 }
 
+const MAX_FPS: f32 = 240.0;
+// Scene rebuilds (command snapshot + GPU upload) are far heavier than a
+// camera-only redraw and briefly hold the state lock that live-scene and
+// input commands also need. Physics keeps the scene dirty every iteration
+// while bodies are awake, so rebuilds get their own, lower cadence cap —
+// otherwise script playback (tweens) starves on lock contention.
+const MAX_REBUILD_FPS: f32 = 120.0;
+
 fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex<CameraInput>>) {
     let mut render = match pipeline::RenderState::new(hwnd, 1, 1) {
         Ok(r) => r,
@@ -115,6 +139,9 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex
             return;
         }
     };
+    let FrameBudget = std::time::Duration::from_secs_f32(1.0 / MAX_FPS);
+    let RebuildBudget = std::time::Duration::from_secs_f32(1.0 / MAX_REBUILD_FPS);
+    let mut LastRebuild = Instant::now() - RebuildBudget;
 
     let format = render.config.format;
     let mut SceneRenderer = SceneRenderer::new(&render.device, format, 1, 1);
@@ -131,37 +158,27 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex
         let FrameDt = now.duration_since(LastFrame).as_secs_f32();
         LastFrame = now;
 
-        let (orbit_dx, orbit_dy, pan_dx, pan_dy, zoom, forward, right, up) = {
+        let input = {
             let mut ci = CameraInput.lock().unwrap();
-            let vals = (
-                ci.orbit_dx,
-                ci.orbit_dy,
-                ci.pan_dx,
-                ci.pan_dy,
-                ci.zoom,
-                ci.forward,
-                ci.right,
-                ci.up,
-            );
-            *ci = CameraInput::default();
-            vals
+            std::mem::take(&mut *ci)
         };
 
-        let HasCameraInput = orbit_dx != 0.0
-            || orbit_dy != 0.0
-            || pan_dx != 0.0
-            || pan_dy != 0.0
-            || zoom != 0.0
-            || forward != 0.0
-            || right != 0.0
-            || up != 0.0;
+        let HasCameraInput = input.orbit_dx != 0.0
+            || input.orbit_dy != 0.0
+            || input.pan_dx != 0.0
+            || input.pan_dy != 0.0
+            || input.zoom != 0.0
+            || input.forward != 0.0
+            || input.right != 0.0
+            || input.up != 0.0;
 
-        let (visible, bounds, dirty, mut camera) = {
+        let AllowRebuild = LastRebuild.elapsed() >= RebuildBudget;
+        let (visible, bounds, mut camera, dirty_snapshot, RebuildPending) = {
             let mut s = state.lock().unwrap();
-            s.camera.orbit(orbit_dx, orbit_dy);
-            s.camera.pan(pan_dx, pan_dy);
-            s.camera.zoom(zoom);
-            s.camera.WasdMove(forward, right, up);
+            s.camera.orbit(input.orbit_dx, input.orbit_dy);
+            s.camera.pan(input.pan_dx, input.pan_dy);
+            s.camera.zoom(input.zoom);
+            s.camera.WasdMove(input.forward, input.right, input.up);
 
             if s.visible {
                 let mut physics = std::mem::take(&mut s.physics);
@@ -171,54 +188,105 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex
                 s.physics = physics;
             }
 
-            let dirty = s.dirty;
-            if dirty {
+            let dirty_snapshot = if s.dirty && AllowRebuild {
                 s.dirty = false;
-            }
-            (s.visible, s.bounds, dirty, s.camera.clone())
+                Some(DirtySceneSnapshot {
+                    commands: s.commands.clone(),
+                    selected: s.selected.clone(),
+                    selected_face: s.selected_face.clone(),
+                    gizmo_mode: s.gizmo_mode.clone(),
+                    skip_camera_meta: s.skip_camera_meta,
+                    camera: s.camera.clone(),
+                })
+            } else {
+                None
+            };
+            let RebuildPending = s.dirty;
+            (
+                s.visible,
+                s.bounds,
+                s.camera.clone(),
+                dirty_snapshot,
+                RebuildPending,
+            )
         };
+        let dirty = dirty_snapshot.is_some();
 
         let (_, _, w, h) = bounds;
         if w != render.width || h != render.height {
             render.resize(w, h);
             SceneRenderer.resize(&render.device, format, w, h);
         }
-        if dirty {
-            let (commands, selected, gizmo_mode, SkipCameraMeta) = {
-                let s = state.lock().unwrap();
-                let SkipCameraMeta = s.skip_camera_meta;
-                (
-                    s.commands.clone(),
-                    s.selected.clone(),
-                    s.gizmo_mode.clone(),
-                    SkipCameraMeta,
-                )
-            };
-            SceneRenderer.LoadCommands(&render.queue, &commands);
-            SceneRenderer.LoadGizmo(&render.queue, selected.as_deref(), &commands, &gizmo_mode);
+        if let Some(mut snapshot) = dirty_snapshot {
+            LastRebuild = Instant::now();
+            ProcessMetaCommands(
+                &snapshot.commands,
+                &mut snapshot.camera,
+                &mut sky,
+                snapshot.skip_camera_meta,
+            );
+            UpdateCameraClip(&snapshot.commands, &mut snapshot.camera);
+            camera = snapshot.camera.clone();
 
-            let mut s = state.lock().unwrap();
-            ProcessMetaCommands(&commands, &mut s.camera, &mut sky, SkipCameraMeta);
-            UpdateCameraClip(&commands, &mut s.camera);
-            if !SkipCameraMeta {
-                s.skip_camera_meta = true;
-            }
-            camera = s.camera.clone();
+            SceneRenderer.LoadCommands(&render.device, &render.queue, &snapshot.commands);
+            SceneRenderer.LoadGizmo(
+                &render.queue,
+                snapshot.selected.as_deref(),
+                snapshot.selected_face.as_ref(),
+                &snapshot.commands,
+                &snapshot.gizmo_mode,
+            );
         }
 
-        let NeedsRender = HasCameraInput || dirty;
+        let needs_render = HasCameraInput || dirty;
 
         if visible && render.width > 0 && render.height > 0 {
             camera.aspect = render.width as f32 / render.height as f32;
-            if let Ok(mut s) = state.try_lock() {
-                s.camera.aspect = camera.aspect;
-            }
-            if NeedsRender {
-                let uniform = camera.ToUniform();
+            if needs_render {
+                // The shaders work in linear space behind an sRGB surface, so
+                // the authored sky color converts once per rendered frame.
+                let SkyLinear = wgpu::Color {
+                    r: sky.r.powf(2.2),
+                    g: sky.g.powf(2.2),
+                    b: sky.b.powf(2.2),
+                    a: 1.0,
+                };
+                {
+                    let mut s = state.lock().unwrap();
+                    // If new commands landed while this frame was prepared,
+                    // they may carry their own camera (SetCamera / frame
+                    // selected); leave s.camera alone and let the next
+                    // iteration pick everything up. Still render below —
+                    // skipping frames here is what caused drag stutter.
+                    if !s.dirty {
+                        if dirty && !s.skip_camera_meta {
+                            s.skip_camera_meta = true;
+                        }
+                        s.camera = camera.clone();
+                    }
+                }
+                // Render outside the state lock so a vsync wait in present()
+                // never blocks input/command handlers.
+                let uniform = camera.ToUniform([
+                    SkyLinear.r as f32,
+                    SkyLinear.g as f32,
+                    SkyLinear.b as f32,
+                ]);
                 SceneRenderer.UpdateCamera(&render.queue, &uniform);
-                SceneRenderer.render(&render.surface.0, &render.device, &render.queue, sky);
-                std::thread::sleep(std::time::Duration::from_millis(8));
+                SceneRenderer.render(&render.surface.0, &render.device, &render.queue, SkyLinear);
+
+                // Frame pacing: cap at MAX_FPS, measured from loop start.
+                std::thread::sleep(FrameBudget.saturating_sub(now.elapsed()).max(
+                    std::time::Duration::from_millis(1),
+                ));
+            } else if RebuildPending {
+                // A rebuild was deferred by MAX_REBUILD_FPS; check back soon
+                // instead of idling a full tick.
+                std::thread::sleep(std::time::Duration::from_millis(2));
             } else {
+                if let Ok(mut s) = state.try_lock() {
+                    s.camera.aspect = camera.aspect;
+                }
                 std::thread::sleep(std::time::Duration::from_millis(14));
             }
         } else {
@@ -265,12 +333,13 @@ fn UpdateCameraClip(commands: &[serde_json::Value], camera: &mut OrbitalCamera) 
     let mut far = 2000.0_f32;
 
     for cmd in commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+        let Cmd = cmd.get("Cmd").and_then(|v| v.as_str());
+        if Cmd != Some("AddPart") && Cmd != Some("AddMesh") {
             continue;
         }
 
         let pos = cmd.get("Position");
-        let size = cmd.get("Size");
+        let size = cmd.get("Bounds").or_else(|| cmd.get("Size"));
         let f = |obj: Option<&serde_json::Value>, key: &str, fallback: f64| -> f32 {
             obj.and_then(|o| o.get(key))
                 .and_then(|v| v.as_f64())

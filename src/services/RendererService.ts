@@ -9,13 +9,6 @@ export const RendererService = {
         });
     },
 
-    async LoadLiveScene(Config: { Commands: SceneCommand[]; Profile: string }): Promise<void> {
-        return invoke("renderer_load_live_scene", {
-            commands: Config.Commands,
-            profile:  Config.Profile,
-        });
-    },
-
     async SetBounds(Config: { X: number; Y: number; Width: number; Height: number }): Promise<void> {
         return invoke("renderer_set_bounds", {
             x:      Config.X,
@@ -162,6 +155,18 @@ export const RendererService = {
 
     async DeletePart(Config: { Id: string }): Promise<void> {
         return invoke("renderer_delete_part", { id: Config.Id });
+    },
+
+    async SubdivideSelected(): Promise<void> {
+        return invoke("renderer_subdivide_selected");
+    },
+
+    async ExtrudeSelectedFace(Config: { Distance: number }): Promise<{ PartId: string; FaceIndex: number }> {
+        return invoke("renderer_extrude_selected_face", { distance: Config.Distance });
+    },
+
+    async DeleteSelectedFace(): Promise<void> {
+        return invoke("renderer_delete_selected_face");
     },
 
     async FrameSelected(): Promise<void> {

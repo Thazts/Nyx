@@ -23,13 +23,19 @@ export type SceneCommand =
     | { Cmd: "SetSkybox";   Color: RGB }
     | { Cmd: "AddPart";     Id: string; Name: string; Position: Vec3; Size: Vec3;
         Color: RGB; Anchored: boolean; CanCollide: boolean;
-        Material: string; Transparency: number; Shape: "Block" | "Sphere" | "Cylinder";
+        Material: string; Transparency: number; Shape: "Block" | "Sphere" | "Cylinder" | "Cone" | "Wedge" | "Torus";
         CFrame?: { X: number; Y: number; Z: number; RX: number; RY: number; RZ: number };
         AssemblyLinearVelocity?: PhysicsVector; Velocity?: PhysicsVector;
         AssemblyAngularVelocity?: PhysicsVector; RotVelocity?: PhysicsVector;
         Force?: PhysicsVector; Impulse?: PhysicsVector;
         Massless?: boolean; Mass?: number; Density?: number; Friction?: number; Elasticity?: number;
         Physics?: PhysicsState }
+    | { Cmd: "AddMesh";     Id: string; Name: string; Position: Vec3; Size: Vec3;
+        Color: RGB; Anchored: boolean; CanCollide: boolean;
+        Material: string; Transparency: number; Shape: "Mesh";
+        Bounds: Vec3; Vertices: Vec3[]; Indices: number[];
+        Normals?: Vec3[];
+        CFrame?: { X: number; Y: number; Z: number; RX: number; RY: number; RZ: number } }
     | { Cmd: "AddLight";    LightType: "Directional" | "Point" | "Ambient";
         Position: Vec3; Color: RGB; Intensity: number }
     | { Cmd: "SetCamera";   Position: Vec3; LookAt: Vec3 }

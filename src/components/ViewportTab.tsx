@@ -6,6 +6,11 @@ import styles from "../styles/ViewportTab.module.css";
 
 type GizmoMode = "move" | "rotate" | "scale";
 
+interface SelectedFaceInfo {
+    PartId: string;
+    FaceIndex: number;
+}
+
 export const ViewportTab: React.FC = () => {
     const AnchorRef = useRef<HTMLDivElement>(null);
 
@@ -35,12 +40,20 @@ export const ViewportTab: React.FC = () => {
             window.removeEventListener("resize", ReportBounds);
             RendererService.LoadScene({ Commands: [], Profile: "roblox" }).catch(() => {});
             RendererService.SetVisible({ Visible: false });
+            StateService.Set({ Key: "SelectedFace", Value: null });
             StateService.Set({ Key: "ViewportActive", Value: false });
         };
     }, []);
     useEffect(() => {
         const unlisten = listen<string | null>("vp-selected", (event) => {
             StateService.Set({ Key: "SelectedPartId", Value: event.payload ?? null });
+            if (!event.payload) StateService.Set({ Key: "SelectedFace", Value: null });
+        });
+        return () => { unlisten.then(f => f()); };
+    }, []);
+    useEffect(() => {
+        const unlisten = listen<SelectedFaceInfo | null>("vp-face-selected", (event) => {
+            StateService.Set({ Key: "SelectedFace", Value: event.payload ?? null });
         });
         return () => { unlisten.then(f => f()); };
     }, []);
@@ -63,7 +76,10 @@ export const ViewportTab: React.FC = () => {
                 const PartId = StateService.Get<string | null>({ Key: "SelectedPartId" });
                 if (PartId) {
                     RendererService.DeletePart({ Id: PartId })
-                        .then(() => StateService.Set({ Key: "SelectedPartId", Value: null }))
+                        .then(() => {
+                            StateService.Set({ Key: "SelectedPartId", Value: null });
+                            StateService.Set({ Key: "SelectedFace", Value: null });
+                        })
                         .catch(() => {});
                 }
             }
@@ -71,13 +87,19 @@ export const ViewportTab: React.FC = () => {
             if ((E.ctrlKey || E.metaKey) && k === "z") {
                 E.preventDefault();
                 RendererService.Undo()
-                    .then(() => StateService.Set({ Key: "SelectedPartId", Value: null }))
+                    .then(() => {
+                        StateService.Set({ Key: "SelectedPartId", Value: null });
+                        StateService.Set({ Key: "SelectedFace", Value: null });
+                    })
                     .catch(() => {});
             }
             if ((E.ctrlKey || E.metaKey) && (k === "y" || (E.shiftKey && k === "z"))) {
                 E.preventDefault();
                 RendererService.Redo()
-                    .then(() => StateService.Set({ Key: "SelectedPartId", Value: null }))
+                    .then(() => {
+                        StateService.Set({ Key: "SelectedPartId", Value: null });
+                        StateService.Set({ Key: "SelectedFace", Value: null });
+                    })
                     .catch(() => {});
             }
         };

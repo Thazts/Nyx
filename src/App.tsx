@@ -16,11 +16,16 @@ import { NativeCommands } from "./services/NativeCommands";
 import { StateService } from "./services/StateService";
 import { SceneService } from "./services/SceneService";
 import { RendererService } from "./services/RendererService";
+import { ModelService } from "./services/ModelService";
 import { InferProfileFromPath } from "./services/EngineProfiles";
 import { DevMenu } from "@devtools";
 import { SourceControl } from "./components/SourceControl";
 import { SettingsPanel, InitSettings } from "./components/SettingsPanel";
 import { CommandPalette } from "./components/CommandPalette";
+import { TitleBar } from "./components/TitleBar";
+import { NotesPanel } from "./components/NotesPanel";
+import { ResizeFrame } from "./components/ResizeFrame";
+import { MenuService } from "./services/MenuService";
 import { UILib, UsePanel } from "./ui/UILib";
 import { DetectLanguage } from "./services/Tokenizer";
 import { useStateKey } from "./state/useStateKey";
@@ -148,15 +153,13 @@ export const App: React.FC = () => {
     const IsSourceControlOpen  = UsePanel("SourceControl");
     const IsSettingsOpen       = UsePanel("Settings");
     const IsCommandPaletteOpen = UsePanel("CommandPalette");
+    const IsNotesOpen          = UsePanel("Notes");
     const PrevActiveFileRef = useRef<string | null>(null);
     const AppRef = useRef<HTMLDivElement>(null);
     const ActiveFileRef = useRef<string | null>(null);
     const FileContentRef = useRef<string>(InitialCode);
     const DiskContentRef = useRef<string>(InitialCode);
     const LastKnownMtimeRef = useRef<string | null>(null);
-    const LiveViewportTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-    const LiveViewportTokensRef = useRef<Map<string, number>>(new Map());
-    const LastViewportInteractionRef = useRef(0);
 
     useEffect(() => {
         const PreventMenu = (E: MouseEvent) => E.preventDefault();
@@ -166,9 +169,7 @@ export const App: React.FC = () => {
 
     useEffect(() => {
         return () => {
-            LiveViewportTimersRef.current.forEach(Timer => clearTimeout(Timer));
-            LiveViewportTimersRef.current.clear();
-            LiveViewportTokensRef.current.clear();
+            void SceneService.StopLiveScene();
         };
     }, []);
 
@@ -296,13 +297,9 @@ export const App: React.FC = () => {
         if (!viewportEl) return;
 
         const keysDown = new Set<string>();
-        const MarkViewportInteraction = () => {
-            LastViewportInteractionRef.current = performance.now();
-        };
 
         const onKeyDown = (e: KeyboardEvent) => {
             if (!viewportEl.contains(e.target as Node)) return;
-            MarkViewportInteraction();
             keysDown.add(e.key.toLowerCase());
             if (!keysDown.has('mouse2')) return;
             let forward = 0, right = 0, up = 0;
@@ -318,13 +315,11 @@ export const App: React.FC = () => {
         };
 
         const onKeyUp = (e: KeyboardEvent) => {
-            if (viewportEl.contains(e.target as Node)) MarkViewportInteraction();
             keysDown.delete(e.key.toLowerCase());
         };
 
         const onMouseDown = (e: MouseEvent) => {
             if (!viewportEl.contains(e.target as Node)) return;
-            MarkViewportInteraction();
             if (e.button === 2) {
                 keysDown.add('mouse2');
                 RendererService.CameraRightMouse({ Down: true }).catch(() => {});
@@ -333,7 +328,6 @@ export const App: React.FC = () => {
         };
 
         const onMouseUp = (e: MouseEvent) => {
-            if (viewportEl.contains(e.target as Node)) MarkViewportInteraction();
             if (e.button === 2) {
                 keysDown.delete('mouse2');
                 RendererService.CameraRightMouse({ Down: false }).catch(() => {});
@@ -346,21 +340,11 @@ export const App: React.FC = () => {
             }
         };
 
-        const onMouseMove = (e: MouseEvent) => {
-            if (viewportEl.contains(e.target as Node)) MarkViewportInteraction();
-        };
-
-        const onWheel = (e: WheelEvent) => {
-            if (viewportEl.contains(e.target as Node)) MarkViewportInteraction();
-        };
-
         window.addEventListener('keydown', onKeyDown);
         window.addEventListener('keyup', onKeyUp);
         window.addEventListener('mousedown', onMouseDown);
         window.addEventListener('mouseup', onMouseUp);
         window.addEventListener('contextmenu', onContextMenu);
-        window.addEventListener('mousemove', onMouseMove);
-        window.addEventListener('wheel', onWheel);
 
         return () => {
             window.removeEventListener('keydown', onKeyDown);
@@ -368,8 +352,6 @@ export const App: React.FC = () => {
             window.removeEventListener('mousedown', onMouseDown);
             window.removeEventListener('mouseup', onMouseUp);
             window.removeEventListener('contextmenu', onContextMenu);
-            window.removeEventListener('mousemove', onMouseMove);
-            window.removeEventListener('wheel', onWheel);
         };
     }, [ActiveFile]);
 
@@ -491,9 +473,7 @@ export const App: React.FC = () => {
             DiskContentRef.current = InitialCode;
             SetFileContent(InitialCode);
             SetActiveTabModified(false);
-            LiveViewportTimersRef.current.forEach(Timer => clearTimeout(Timer));
-            LiveViewportTimersRef.current.clear();
-            LiveViewportTokensRef.current.clear();
+            void SceneService.StopLiveScene();
             SetOpenTabs([]);
             StateService.Set({ Key: "OpenTabs", Value: [] });
             const SubFolders = CollectAllFolderPaths(Tree[0]?.Children ?? []);
@@ -533,7 +513,26 @@ export const App: React.FC = () => {
         DiskContentRef.current = "";
         SetFileContent("");
         SetActiveTabModified(false);
-        SetTerminalOutput(Prev => [...Prev, `▶ Model: ${FileName}`]);
+
+        try {
+            const Result = await ModelService.LoadModelFile({ Path: SourcePath });
+            await RendererService.LoadScene({ Commands: Result.Commands, Profile: "roblox" });
+            const Lines: string[] = [
+                `▶ Model: ${FileName}`,
+                ...Result.Terminal,
+                ...(Result.Errors.length > 0 ? Result.Errors.map(E => `err: ${E}`) : []),
+                Result.Errors.length === 0
+                    ? `✓ ${Result.Commands.length} object(s) loaded`
+                    : `exit 1`,
+            ];
+            SetTerminalOutput(Prev => [...Prev, ...Lines]);
+        } catch (Err) {
+            SetTerminalOutput(Prev => [
+                ...Prev,
+                `▶ Model: ${FileName}`,
+                `err: ${Err}`,
+            ]);
+        }
     }, [FileTree, OpenTabs]);
 
     const HandleFileSelect = useCallback(async (Path: string) => {
@@ -676,7 +675,6 @@ export const App: React.FC = () => {
                 SetSelectedMetadata(Meta);
             }
         } catch {
-            // Some write tools may target notes or paths outside the active workspace.
         }
     }, [BuildFileTree, MarkAiChangedFile, ResolveWorkspaceFilePath, WorkspacePath]);
 
@@ -731,10 +729,8 @@ export const App: React.FC = () => {
     }, [WorkspacePath, BuildFileTree]);
 
     const StopLiveViewport = useCallback((ViewportPath: string) => {
-        const Timer = LiveViewportTimersRef.current.get(ViewportPath);
-        if (Timer) clearTimeout(Timer);
-        LiveViewportTimersRef.current.delete(ViewportPath);
-        LiveViewportTokensRef.current.delete(ViewportPath);
+        const SourcePath = ViewportPath.replace(/^viewport:/, "");
+        void SceneService.StopLiveScene({ Path: SourcePath });
     }, []);
 
     const HandleTabClose = useCallback((Path: string) => {
@@ -796,6 +792,27 @@ export const App: React.FC = () => {
             SetActiveTabModified(Tab.Content !== Tab.DiskContent);
         }
     }, [OpenTabs, ActiveFile]);
+    useEffect(() => {
+        MenuService.Register("file.open-folder", HandleSelectWorkspace);
+        MenuService.Register("file.save",         HandleSave);
+        MenuService.Register("file.save-all",     HandleSaveAll);
+        MenuService.Register("file.close-tab",    () => {
+            const Path = ActiveFileRef.current;
+            if (Path) HandleTabClose(Path);
+        });
+        MenuService.Register("file.close-all", () => {
+            void SceneService.StopLiveScene();
+            SetOpenTabs([]);
+            StateService.Set({ Key: "OpenTabs",   Value: [] });
+            SetActiveFile(null);
+            StateService.Set({ Key: "ActiveFile", Value: null });
+            FileContentRef.current = InitialCode;
+            DiskContentRef.current = InitialCode;
+            SetFileContent(InitialCode);
+            SetActiveTabModified(false);
+        });
+    }, [HandleSelectWorkspace, HandleSave, HandleSaveAll, HandleTabClose]);
+
     const HandleContentChange = useCallback((Content: string) => {
         FileContentRef.current = Content;
         SetFileContent(Content);
@@ -864,46 +881,11 @@ export const App: React.FC = () => {
         StateService.Set({ Key: "RunOutput", Value: [] });
     }, []);
 
+    // The live loop runs on a backend thread at 60 fps (see scene_runner.rs);
+    // it pauses itself while the viewport is hidden or an object is mid-edit.
     const StartLiveViewport = useCallback((SourcePath: string, Profile: string) => {
-        const ViewportPath = `viewport:${SourcePath}`;
-        StopLiveViewport(ViewportPath);
-        const StartedAt = performance.now();
-        const RunToken = StartedAt + Math.random();
-        let Version = 0;
-        LiveViewportTokensRef.current.set(ViewportPath, RunToken);
-
-        const Schedule = (Delay: number) => {
-            if (LiveViewportTokensRef.current.get(ViewportPath) !== RunToken) return;
-            const Timer = setTimeout(Tick, Delay);
-            LiveViewportTimersRef.current.set(ViewportPath, Timer);
-        };
-
-        const Tick = async () => {
-            const Now = performance.now();
-            if (ActiveFileRef.current !== ViewportPath) {
-                Schedule(250);
-                return;
-            }
-            if (Now - LastViewportInteractionRef.current < 140) {
-                Schedule(80);
-                return;
-            }
-            const TickStartedAt = performance.now();
-            const CurrentVersion = ++Version;
-            const Elapsed = (performance.now() - StartedAt) / 1000;
-            try {
-                const Result = await SceneService.RunLiveScene({ Path: SourcePath, Profile, Elapsed });
-                if (!Result.Skipped && CurrentVersion === Version && LiveViewportTokensRef.current.get(ViewportPath) === RunToken) {
-                    await RendererService.LoadLiveScene({ Commands: Result.Commands, Profile });
-                }
-            } catch {
-            }
-            const Cost = performance.now() - TickStartedAt;
-            Schedule(Cost > 24 ? Math.min(120, Math.max(48, Cost)) : 33);
-        };
-
-        Schedule(33);
-    }, [StopLiveViewport]);
+        void SceneService.StartLiveScene({ Path: SourcePath, Profile });
+    }, []);
 
     const HandleOpenViewport = useCallback(async (SourcePath: string) => {
         const ViewportPath = `viewport:${SourcePath}`;
@@ -1128,6 +1110,8 @@ export const App: React.FC = () => {
     if (!AppReady) {
         return (
             <div className="App" key="start">
+                <ResizeFrame />
+                <TitleBar />
                 <StartScreen
                     OnOpenFolder={HandleOpenFolderFromStart}
                     OnContinue={() => SetAppReady(true)}
@@ -1141,8 +1125,10 @@ export const App: React.FC = () => {
 
     return (
         <div className="App AppEnter" key="main" ref={AppRef}>
+            <ResizeFrame />
+            <TitleBar HasWorkspace={!!WorkspacePath} />
             <div className="Main">
-                <ActivityBar />
+                <ActivityBar HasWorkspace={!!WorkspacePath} />
                 {WorkspacePath ? (
                     <Sidebar
                         Files={FileTree}
@@ -1242,6 +1228,11 @@ export const App: React.FC = () => {
                     OnSelectFile={HandleFileSelect}
                     OnClose={() => UILib.Hide("CommandPalette")}
                     Commands={PaletteCommands}
+                />
+            )}
+            {IsNotesOpen && (
+                <NotesPanel
+                    OnClose={() => UILib.Hide("Notes")}
                 />
             )}
             {DevMenuOpen && (

@@ -83,6 +83,7 @@ UILib.Register("Search",           false);
 UILib.Register("SourceControl",    false);
 UILib.Register("Settings",         false);
 UILib.Register("CommandPalette",   false);
+UILib.Register("Notes",            false);
 
 export function UsePanel(Name: string): boolean {
     const [Visible, SetVisible] = useState(() => UILib.IsVisible(Name));

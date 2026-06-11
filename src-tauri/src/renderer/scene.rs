@@ -1,172 +1,76 @@
-use bytemuck::{Pod, Zeroable};
+use std::collections::{HashMap, HashSet};
+
 use wgpu::util::DeviceExt;
 
-use super::camera::CameraUniform;
-
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
-struct Instance {
-    position: [f32; 3], // offset 0
-    size: [f32; 3],     // offset 12
-    color: [f32; 3],    // offset 24
-    rotation: [f32; 4], // offset 36 — quaternion XYZW; identity = [0,0,0,1]
-}
-
-fn EulerToQuat(rx: f32, ry: f32, rz: f32) -> [f32; 4] {
-    // YXZ Euler order (Roblox CFrame.Angles convention: RY first, then RX, then RZ)
-    let (cx, sx) = ((rx * 0.5).cos(), (rx * 0.5).sin());
-    let (cy, sy) = ((ry * 0.5).cos(), (ry * 0.5).sin());
-    let (cz, sz) = ((rz * 0.5).cos(), (rz * 0.5).sin());
-    let w = cy * cx * cz + sy * sx * sz;
-    let x = cy * sx * cz + sy * cx * sz;
-    let y = sy * cx * cz - cy * sx * sz;
-    let z = cy * cx * sz - sy * sx * cz;
-    let len = (x * x + y * y + z * z + w * w).sqrt();
-    if len < 1e-6 {
-        return [0.0, 0.0, 0.0, 1.0];
-    }
-    [x / len, y / len, z / len, w / len]
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
-struct GizmoVertex {
-    position: [f32; 3],
-    color: [f32; 3],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
-struct GridVertex {
-    position: [f32; 3],
-}
+use super::gizmo::{self, GizmoVertex, GridQuad, GridVertex};
+use super::mesh::{
+    BuildMeshGeometry, Instance, MakeMeshDraw, MeshDraw, ReadInstance, ShapeIndex, UnitShapeMesh,
+    Vertex, SHAPE_COUNT,
+};
+use super::{camera::CameraUniform, SelectedFace};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-const MAX_INSTANCES: u64 = 4096;
+const MSAA_SAMPLES: u32 = 4;
+const GIZMO_MAX_VERTS: usize = 512;
+const INITIAL_INSTANCE_CAPACITY: u32 = 256;
 
-fn CubeMesh() -> (Vec<Vertex>, Vec<u16>) {
-    let faces: &[([f32; 3], [[f32; 3]; 4])] = &[
-        (
-            [0., 0., 1.],
-            [
-                [-0.5, -0.5, 0.5],
-                [0.5, -0.5, 0.5],
-                [0.5, 0.5, 0.5],
-                [-0.5, 0.5, 0.5],
-            ],
-        ), // +Z front
-        (
-            [0., 0., -1.],
-            [
-                [0.5, -0.5, -0.5],
-                [-0.5, -0.5, -0.5],
-                [-0.5, 0.5, -0.5],
-                [0.5, 0.5, -0.5],
-            ],
-        ), // -Z back
-        (
-            [-1., 0., 0.],
-            [
-                [-0.5, -0.5, -0.5],
-                [-0.5, -0.5, 0.5],
-                [-0.5, 0.5, 0.5],
-                [-0.5, 0.5, -0.5],
-            ],
-        ), // -X left
-        (
-            [1., 0., 0.],
-            [
-                [0.5, -0.5, 0.5],
-                [0.5, -0.5, -0.5],
-                [0.5, 0.5, -0.5],
-                [0.5, 0.5, 0.5],
-            ],
-        ), // +X right
-        (
-            [0., 1., 0.],
-            [
-                [-0.5, 0.5, 0.5],
-                [0.5, 0.5, 0.5],
-                [0.5, 0.5, -0.5],
-                [-0.5, 0.5, -0.5],
-            ],
-        ), // +Y top
-        (
-            [0., -1., 0.],
-            [
-                [-0.5, -0.5, -0.5],
-                [0.5, -0.5, -0.5],
-                [0.5, -0.5, 0.5],
-                [-0.5, -0.5, 0.5],
-            ],
-        ), // -Y bottom
-    ];
-
-    let mut verts: Vec<Vertex> = Vec::with_capacity(24);
-    let mut idx: Vec<u16> = Vec::with_capacity(36);
-
-    for (normal, quad) in faces {
-        let base = verts.len() as u16;
-        for pos in quad {
-            verts.push(Vertex {
-                position: *pos,
-                normal: *normal,
-            });
-        }
-        idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
-    }
-
-    (verts, idx)
+// WGSL has no include mechanism; every scene shader shares the camera uniform
+// and lighting helpers by prepending common.wgsl at pipeline creation.
+macro_rules! SceneShader {
+    ($File:literal) => {
+        concat!(include_str!("shaders/common.wgsl"), include_str!($File))
+    };
 }
 
-fn GridQuad() -> (Vec<GridVertex>, Vec<u16>) {
-    let size = 2000.0_f32;
-    let verts = vec![
-        GridVertex {
-            position: [-size, 0.0, -size],
-        },
-        GridVertex {
-            position: [size, 0.0, -size],
-        },
-        GridVertex {
-            position: [size, 0.0, size],
-        },
-        GridVertex {
-            position: [-size, 0.0, size],
-        },
-    ];
-    let idx = vec![0u16, 1, 2, 0, 2, 3];
-    (verts, idx)
-}
-
-fn GizmoMetrics(sx: f32, sy: f32, sz: f32) -> (f32, f32, f32, f32) {
-    let MaxSize = sx.max(sy).max(sz).max(0.001);
-    let len = (MaxSize * 0.9).clamp(6.0, 600.0);
-    let handle = (len * 0.06).clamp(0.35, 24.0);
-    let arrow = (len * 0.07).clamp(0.4, 28.0);
-    let radius = (MaxSize * 0.5 + handle).clamp(1.2, 1200.0);
-    (len, handle, arrow, radius)
-}
-
-pub struct SceneRenderer {
-    pipeline: wgpu::RenderPipeline,
+// One instanced batch per primitive shape: unit-space geometry built once,
+// per-part transforms and colors streamed into a growable instance buffer.
+struct ShapeBatch {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: u32,
     instance_buf: wgpu::Buffer,
+    instance_capacity: u32,
     instance_count: u32,
+}
+
+// AddMesh draws cached by command Id. Geometry lives on the GPU in local
+// space, so an unchanged command costs nothing, a moved/recolored one is a
+// single small instance write, and only edited geometry rebuilds buffers.
+struct CachedMesh {
+    command: serde_json::Value,
+    draw: MeshDraw,
+}
+
+fn SameGeometry(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    a.get("Vertices") == b.get("Vertices")
+        && a.get("Indices") == b.get("Indices")
+        && a.get("Normals") == b.get("Normals")
+}
+
+fn MeshInstance(Command: &serde_json::Value) -> Instance {
+    ReadInstance(Command, [1.0, 1.0, 1.0], [0.72, 0.72, 0.76])
+}
+
+struct PipelineDesc<'a> {
+    label: &'a str,
+    shader: &'static str,
+    buffers: &'a [wgpu::VertexBufferLayout<'a>],
+    topology: wgpu::PrimitiveTopology,
+    cull: Option<wgpu::Face>,
+    blend: wgpu::BlendState,
+    depth_write: bool,
+    depth_compare: wgpu::CompareFunction,
+}
+
+pub struct SceneRenderer {
+    sky_pipeline: wgpu::RenderPipeline,
+    part_pipeline: wgpu::RenderPipeline,
+    shape_batches: Vec<ShapeBatch>,
+    mesh_cache: HashMap<String, CachedMesh>,
+    mesh_order: Vec<String>,
     camera_buf: wgpu::Buffer,
     camera_bind_grp: wgpu::BindGroup,
-    msaa_tex: wgpu::Texture,
     msaa_view: wgpu::TextureView,
-    depth_tex: wgpu::Texture,
     depth_view: wgpu::TextureView,
     gizmo_pipeline: wgpu::RenderPipeline,
     gizmo_vertex_buf: wgpu::Buffer,
@@ -184,38 +88,10 @@ impl SceneRenderer {
         width: u32,
         height: u32,
     ) -> Self {
-        let (cube_verts, cube_idx) = CubeMesh();
-
-        let VertexBuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("cube.vtx"),
-            contents: bytemuck::cast_slice(&cube_verts),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let IndexBuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("cube.idx"),
-            contents: bytemuck::cast_slice(&cube_idx),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let IndexCount = cube_idx.len() as u32;
-
-        let InstanceBuf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("instances"),
-            size: MAX_INSTANCES * std::mem::size_of::<Instance>() as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let CameraBuf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("camera"),
             size: std::mem::size_of::<CameraUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let GizmoVertexBuf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gizmo_verts"),
-            size: std::mem::size_of::<GizmoVertex>() as u64 * 512,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -242,27 +118,35 @@ impl SceneRenderer {
             }],
         });
 
-        let (msaa_tex, msaa_view) = MakeMsaa(device, format, width.max(1), height.max(1));
-        let (depth_tex, depth_view) = MakeDepth(device, width.max(1), height.max(1));
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("roblox.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/roblox.wgsl").into()),
-        });
-
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("scene.layout"),
             bind_group_layouts: &[&CamBgl],
             push_constant_ranges: &[],
         });
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("scene.pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+        let SkyPipeline = MakePipeline(
+            device,
+            &layout,
+            format,
+            &PipelineDesc {
+                label: "sky.pipeline",
+                shader: SceneShader!("shaders/sky.wgsl"),
+                buffers: &[],
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull: None,
+                blend: wgpu::BlendState::REPLACE,
+                depth_write: false,
+                depth_compare: wgpu::CompareFunction::Always,
+            },
+        );
+
+        let PartPipeline = MakePipeline(
+            device,
+            &layout,
+            format,
+            &PipelineDesc {
+                label: "part.pipeline",
+                shader: SceneShader!("shaders/roblox.wgsl"),
                 buffers: &[
                     wgpu::VertexBufferLayout {
                         array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
@@ -273,143 +157,88 @@ impl SceneRenderer {
                         array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &wgpu::vertex_attr_array![
-                            2 => Float32x3,  // inst_pos
-                            3 => Float32x3,  // inst_size
-                            4 => Float32x3,  // inst_color
-                            5 => Float32x4,  // inst_rotation (quaternion)
+                            2 => Float32x3,
+                            3 => Float32x3,
+                            4 => Float32x3,
+                            5 => Float32x4,
                         ],
                     },
                 ],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: true,
+                cull: Some(wgpu::Face::Back),
+                blend: wgpu::BlendState::REPLACE,
+                depth_write: true,
                 depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 4,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
             },
-            multiview: None,
-        });
+        );
 
-        let GizmoShader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("gizmo.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/gizmo.wgsl").into()),
-        });
-
-        let GizmoPipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("gizmo.pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &GizmoShader,
-                entry_point: "vs_main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+        let GizmoPipeline = MakePipeline(
+            device,
+            &layout,
+            format,
+            &PipelineDesc {
+                label: "gizmo.pipeline",
+                shader: SceneShader!("shaders/gizmo.wgsl"),
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<GizmoVertex>() as wgpu::BufferAddress,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
                 }],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &GizmoShader,
-                entry_point: "fs_main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::LineList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: false,
+                cull: None,
+                blend: wgpu::BlendState::REPLACE,
+                depth_write: false,
                 depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 4,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
             },
-            multiview: None,
-        });
-        let GridShader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("grid.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/grid.wgsl").into()),
-        });
+        );
 
-        let GridPipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("grid.pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &GridShader,
-                entry_point: "vs_main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+        let GridPipeline = MakePipeline(
+            device,
+            &layout,
+            format,
+            &PipelineDesc {
+                label: "grid.pipeline",
+                shader: SceneShader!("shaders/grid.wgsl"),
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<GridVertex>() as wgpu::BufferAddress,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![0 => Float32x3],
                 }],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &GridShader,
-                entry_point: "fs_main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: false,
+                cull: None,
+                blend: wgpu::BlendState::ALPHA_BLENDING,
+                depth_write: false,
                 depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 4,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+        );
+
+        let ShapeBatches = (0..SHAPE_COUNT)
+            .map(|Index| {
+                let (Vertices, Indices) = UnitShapeMesh(Index);
+                ShapeBatch {
+                    vertex_buf: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("shape.vtx"),
+                        contents: bytemuck::cast_slice(&Vertices),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    }),
+                    index_buf: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("shape.idx"),
+                        contents: bytemuck::cast_slice(&Indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    }),
+                    index_count: Indices.len() as u32,
+                    instance_buf: MakeInstanceBuffer(device, INITIAL_INSTANCE_CAPACITY),
+                    instance_capacity: INITIAL_INSTANCE_CAPACITY,
+                    instance_count: 0,
+                }
+            })
+            .collect();
+
+        let GizmoVertexBuf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gizmo_verts"),
+            size: (std::mem::size_of::<GizmoVertex>() * GIZMO_MAX_VERTS) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let (grid_verts, grid_idx) = GridQuad();
@@ -425,24 +254,22 @@ impl SceneRenderer {
         });
         let GridIndexCount = grid_idx.len() as u32;
 
+        let msaa_view = MakeMsaa(device, format, width.max(1), height.max(1));
+        let depth_view = MakeDepth(device, width.max(1), height.max(1));
+
         Self {
-            pipeline,
-            vertex_buf: VertexBuf,
-            index_buf: IndexBuf,
-            index_count: IndexCount,
-            instance_buf: InstanceBuf,
-            instance_count: 0,
+            sky_pipeline: SkyPipeline,
+            part_pipeline: PartPipeline,
+            shape_batches: ShapeBatches,
+            mesh_cache: HashMap::new(),
+            mesh_order: Vec::new(),
             camera_buf: CameraBuf,
             camera_bind_grp: CameraBindGrp,
-            msaa_tex,
             msaa_view,
-            depth_tex,
             depth_view,
-
             gizmo_pipeline: GizmoPipeline,
             gizmo_vertex_buf: GizmoVertexBuf,
             gizmo_count: 0,
-
             grid_pipeline: GridPipeline,
             grid_vertex_buf: GridVertexBuf,
             grid_index_buf: GridIndexBuf,
@@ -457,62 +284,90 @@ impl SceneRenderer {
         width: u32,
         height: u32,
     ) {
-        let (m_tex, m_view) = MakeMsaa(device, format, width.max(1), height.max(1));
-        self.msaa_tex = m_tex;
-        self.msaa_view = m_view;
-
-        let (d_tex, d_view) = MakeDepth(device, width.max(1), height.max(1));
-        self.depth_tex = d_tex;
-        self.depth_view = d_view;
+        self.msaa_view = MakeMsaa(device, format, width.max(1), height.max(1));
+        self.depth_view = MakeDepth(device, width.max(1), height.max(1));
     }
 
-    pub fn LoadCommands(&mut self, queue: &wgpu::Queue, commands: &[serde_json::Value]) {
-        let mut instances: Vec<Instance> = Vec::new();
+    pub fn LoadCommands(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        commands: &[serde_json::Value],
+    ) {
+        let mut InstanceLists: Vec<Vec<Instance>> = vec![Vec::new(); SHAPE_COUNT];
+        let mut NewOrder: Vec<String> = Vec::with_capacity(self.mesh_order.len());
+        let mut UsedKeys: HashSet<String> = HashSet::new();
 
-        for cmd in commands {
-            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
-                continue;
-            }
+        for (Index, cmd) in commands.iter().enumerate() {
+            match cmd.get("Cmd").and_then(|v| v.as_str()) {
+                Some("AddPart") => {
+                    let Shape = cmd.get("Shape").and_then(|v| v.as_str()).unwrap_or("Block");
+                    InstanceLists[ShapeIndex(Shape)]
+                        .push(ReadInstance(cmd, [4.0, 1.2, 2.0], [0.64, 0.64, 0.64]));
+                }
+                Some("AddMesh") => {
+                    let mut Key = match cmd.get("Id").and_then(|v| v.as_str()) {
+                        Some(Id) => Id.to_string(),
+                        None => format!("auto:{Index}"),
+                    };
+                    // Duplicate ids would otherwise collapse into one slot.
+                    while !UsedKeys.insert(Key.clone()) {
+                        Key.push('+');
+                    }
 
-            let pos = cmd.get("Position");
-            let siz = cmd.get("Size");
-            let col = cmd.get("Color");
-
-            let f = |obj: Option<&serde_json::Value>, key: &str, fallback: f64| -> f32 {
-                obj.and_then(|o| o.get(key))
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(fallback) as f32
-            };
-
-            let cf = cmd.get("CFrame");
-            let rx = cf
-                .and_then(|o| o.get("RX"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0) as f32;
-            let ry = cf
-                .and_then(|o| o.get("RY"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0) as f32;
-            let rz = cf
-                .and_then(|o| o.get("RZ"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0) as f32;
-
-            instances.push(Instance {
-                position: [f(pos, "X", 0.0), f(pos, "Y", 0.0), f(pos, "Z", 0.0)],
-                size: [f(siz, "X", 4.0), f(siz, "Y", 1.2), f(siz, "Z", 2.0)],
-                color: [f(col, "R", 0.64), f(col, "G", 0.64), f(col, "B", 0.64)],
-                rotation: EulerToQuat(rx, ry, rz),
-            });
-
-            if instances.len() >= MAX_INSTANCES as usize {
-                break;
+                    match self.mesh_cache.get_mut(&Key) {
+                        // Untouched command: GPU state is already correct.
+                        Some(Cached) if Cached.command == *cmd => {}
+                        // Same geometry, new transform/color (a drag, most
+                        // commonly): one small instance write, no rebuild.
+                        Some(Cached) if SameGeometry(&Cached.command, cmd) => {
+                            queue.write_buffer(
+                                &Cached.draw.instance_buf,
+                                0,
+                                bytemuck::bytes_of(&MeshInstance(cmd)),
+                            );
+                            Cached.command = cmd.clone();
+                        }
+                        _ => {
+                            let Some((Vertices, Indices)) = BuildMeshGeometry(cmd) else {
+                                continue;
+                            };
+                            let draw = MakeMeshDraw(device, &Vertices, &Indices);
+                            queue.write_buffer(
+                                &draw.instance_buf,
+                                0,
+                                bytemuck::bytes_of(&MeshInstance(cmd)),
+                            );
+                            self.mesh_cache.insert(
+                                Key.clone(),
+                                CachedMesh {
+                                    command: cmd.clone(),
+                                    draw,
+                                },
+                            );
+                        }
+                    }
+                    NewOrder.push(Key);
+                }
+                _ => {}
             }
         }
 
-        self.instance_count = instances.len() as u32;
-        if !instances.is_empty() {
-            queue.write_buffer(&self.instance_buf, 0, bytemuck::cast_slice(&instances));
+        let Keep: HashSet<&String> = NewOrder.iter().collect();
+        self.mesh_cache.retain(|Key, _| Keep.contains(Key));
+        drop(Keep);
+        self.mesh_order = NewOrder;
+
+        for (Batch, Instances) in self.shape_batches.iter_mut().zip(&InstanceLists) {
+            Batch.instance_count = Instances.len() as u32;
+            if Instances.is_empty() {
+                continue;
+            }
+            if Batch.instance_count > Batch.instance_capacity {
+                Batch.instance_capacity = Batch.instance_count.next_power_of_two();
+                Batch.instance_buf = MakeInstanceBuffer(device, Batch.instance_capacity);
+            }
+            queue.write_buffer(&Batch.instance_buf, 0, bytemuck::cast_slice(Instances));
         }
     }
 
@@ -520,6 +375,7 @@ impl SceneRenderer {
         &mut self,
         queue: &wgpu::Queue,
         SelectedId: Option<&str>,
+        SelectedFace: Option<&SelectedFace>,
         commands: &[serde_json::Value],
         gizmo_mode: &str,
     ) {
@@ -528,278 +384,13 @@ impl SceneRenderer {
             Some(i) => i,
             None => return,
         };
-
-        for cmd in commands {
-            if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
-                continue;
-            }
-            if cmd.get("Id").and_then(|v| v.as_str()) != Some(id) {
-                continue;
-            }
-
-            let fp = |k: &str| -> f32 {
-                cmd.get("Position")
-                    .and_then(|o| o.get(k))
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0) as f32
-            };
-            let fs = |k: &str, d: f64| -> f32 {
-                cmd.get("Size")
-                    .and_then(|o| o.get(k))
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(d) as f32
-            };
-            let px = fp("X");
-            let py = fp("Y");
-            let pz = fp("Z");
-            let sx = fs("X", 2.0);
-            let sy = fs("Y", 2.0);
-            let sz = fs("Z", 2.0);
-            let (axis_len, handle_size, arrow_size, rotate_radius) = GizmoMetrics(sx, sy, sz);
-
-            let mut verts: Vec<GizmoVertex> = Vec::new();
-
-            match gizmo_mode {
-                "rotate" => {
-                    let radius = rotate_radius;
-                    let segs = 32usize;
-                    let RingData: [([f32; 3], u8); 3] = [
-                        ([1.0, 0.15, 0.15], 0), // X ring (YZ plane)
-                        ([0.15, 1.0, 0.15], 1), // Y ring (XZ plane)
-                        ([0.15, 0.15, 1.0], 2), // Z ring (XY plane)
-                    ];
-                    for (color, axis) in &RingData {
-                        for i in 0..segs {
-                            let a0 = (i as f32) / (segs as f32) * std::f32::consts::TAU;
-                            let a1 = ((i + 1) as f32) / (segs as f32) * std::f32::consts::TAU;
-                            let (p0, p1) = match axis {
-                                0 => (
-                                    [px, py + a0.cos() * radius, pz + a0.sin() * radius],
-                                    [px, py + a1.cos() * radius, pz + a1.sin() * radius],
-                                ),
-                                1 => (
-                                    [px + a0.cos() * radius, py, pz + a0.sin() * radius],
-                                    [px + a1.cos() * radius, py, pz + a1.sin() * radius],
-                                ),
-                                _ => (
-                                    [px + a0.cos() * radius, py + a0.sin() * radius, pz],
-                                    [px + a1.cos() * radius, py + a1.sin() * radius, pz],
-                                ),
-                            };
-                            verts.push(GizmoVertex {
-                                position: p0,
-                                color: *color,
-                            });
-                            verts.push(GizmoVertex {
-                                position: p1,
-                                color: *color,
-                            });
-                        }
-                    }
-                }
-                "scale" => {
-                    let len = axis_len;
-                    let hs = handle_size;
-                    verts.push(GizmoVertex {
-                        position: [px, py, pz],
-                        color: [1.0, 0.15, 0.15],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px + len, py, pz],
-                        color: [1.0, 0.15, 0.15],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px, py, pz],
-                        color: [0.15, 1.0, 0.15],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px, py + len, pz],
-                        color: [0.15, 1.0, 0.15],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px, py, pz],
-                        color: [0.15, 0.15, 1.0],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px, py, pz + len],
-                        color: [0.15, 0.15, 1.0],
-                    });
-                    // Square handle at X tip (YZ plane)
-                    let xc = [
-                        [px + len, py + hs, pz + hs],
-                        [px + len, py - hs, pz + hs],
-                        [px + len, py - hs, pz - hs],
-                        [px + len, py + hs, pz - hs],
-                    ];
-                    for i in 0..4 {
-                        verts.push(GizmoVertex {
-                            position: xc[i],
-                            color: [1.0, 0.15, 0.15],
-                        });
-                        verts.push(GizmoVertex {
-                            position: xc[(i + 1) % 4],
-                            color: [1.0, 0.15, 0.15],
-                        });
-                    }
-                    // Square handle at Y tip (XZ plane)
-                    let yc = [
-                        [px + hs, py + len, pz + hs],
-                        [px - hs, py + len, pz + hs],
-                        [px - hs, py + len, pz - hs],
-                        [px + hs, py + len, pz - hs],
-                    ];
-                    for i in 0..4 {
-                        verts.push(GizmoVertex {
-                            position: yc[i],
-                            color: [0.15, 1.0, 0.15],
-                        });
-                        verts.push(GizmoVertex {
-                            position: yc[(i + 1) % 4],
-                            color: [0.15, 1.0, 0.15],
-                        });
-                    }
-                    // Square handle at Z tip (XY plane)
-                    let zc = [
-                        [px + hs, py + hs, pz + len],
-                        [px - hs, py + hs, pz + len],
-                        [px - hs, py - hs, pz + len],
-                        [px + hs, py - hs, pz + len],
-                    ];
-                    for i in 0..4 {
-                        verts.push(GizmoVertex {
-                            position: zc[i],
-                            color: [0.15, 0.15, 1.0],
-                        });
-                        verts.push(GizmoVertex {
-                            position: zc[(i + 1) % 4],
-                            color: [0.15, 0.15, 1.0],
-                        });
-                    }
-                }
-                _ => {
-                    let len = axis_len;
-                    verts.extend_from_slice(&[
-                        GizmoVertex {
-                            position: [px, py, pz],
-                            color: [1.0, 0.15, 0.15],
-                        },
-                        GizmoVertex {
-                            position: [px + len, py, pz],
-                            color: [1.0, 0.15, 0.15],
-                        },
-                        GizmoVertex {
-                            position: [px, py, pz],
-                            color: [0.15, 1.0, 0.15],
-                        },
-                        GizmoVertex {
-                            position: [px, py + len, pz],
-                            color: [0.15, 1.0, 0.15],
-                        },
-                        GizmoVertex {
-                            position: [px, py, pz],
-                            color: [0.15, 0.15, 1.0],
-                        },
-                        GizmoVertex {
-                            position: [px, py, pz + len],
-                            color: [0.15, 0.15, 1.0],
-                        },
-                    ]);
-                    let ah = arrow_size;
-                    // X arrowhead
-                    verts.push(GizmoVertex {
-                        position: [px + len, py + ah, pz],
-                        color: [1.0, 0.15, 0.15],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px + len, py - ah, pz],
-                        color: [1.0, 0.15, 0.15],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px + len, py, pz + ah],
-                        color: [1.0, 0.15, 0.15],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px + len, py, pz - ah],
-                        color: [1.0, 0.15, 0.15],
-                    });
-                    // Y arrowhead
-                    verts.push(GizmoVertex {
-                        position: [px + ah, py + len, pz],
-                        color: [0.15, 1.0, 0.15],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px - ah, py + len, pz],
-                        color: [0.15, 1.0, 0.15],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px, py + len, pz + ah],
-                        color: [0.15, 1.0, 0.15],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px, py + len, pz - ah],
-                        color: [0.15, 1.0, 0.15],
-                    });
-                    // Z arrowhead
-                    verts.push(GizmoVertex {
-                        position: [px + ah, py, pz + len],
-                        color: [0.15, 0.15, 1.0],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px - ah, py, pz + len],
-                        color: [0.15, 0.15, 1.0],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px, py + ah, pz + len],
-                        color: [0.15, 0.15, 1.0],
-                    });
-                    verts.push(GizmoVertex {
-                        position: [px, py - ah, pz + len],
-                        color: [0.15, 0.15, 1.0],
-                    });
-                }
-            }
-            let hx = sx * 0.5 + 0.04;
-            let hy = sy * 0.5 + 0.04;
-            let hz = sz * 0.5 + 0.04;
-            let bc = [1.0_f32, 0.85, 0.0];
-            let corners = [
-                [px - hx, py - hy, pz - hz],
-                [px + hx, py - hy, pz - hz],
-                [px + hx, py + hy, pz - hz],
-                [px - hx, py + hy, pz - hz],
-                [px - hx, py - hy, pz + hz],
-                [px + hx, py - hy, pz + hz],
-                [px + hx, py + hy, pz + hz],
-                [px - hx, py + hy, pz + hz],
-            ];
-            for (a, b) in [
-                (0, 1),
-                (1, 5),
-                (5, 4),
-                (4, 0),
-                (3, 2),
-                (2, 6),
-                (6, 7),
-                (7, 3),
-                (0, 3),
-                (1, 2),
-                (5, 6),
-                (4, 7),
-            ] {
-                verts.push(GizmoVertex {
-                    position: corners[a],
-                    color: bc,
-                });
-                verts.push(GizmoVertex {
-                    position: corners[b],
-                    color: bc,
-                });
-            }
-
-            self.gizmo_count = verts.len() as u32;
-            queue.write_buffer(&self.gizmo_vertex_buf, 0, bytemuck::cast_slice(&verts));
-            break;
+        let mut verts = gizmo::BuildGizmoVerts(id, SelectedFace, commands, gizmo_mode);
+        verts.truncate(GIZMO_MAX_VERTS & !1); // buffer capacity; LineList needs pairs
+        if verts.is_empty() {
+            return;
         }
+        self.gizmo_count = verts.len() as u32;
+        queue.write_buffer(&self.gizmo_vertex_buf, 0, bytemuck::cast_slice(&verts));
     }
 
     pub fn UpdateCamera(&self, queue: &wgpu::Queue, uniform: &CameraUniform) {
@@ -815,7 +406,6 @@ impl SceneRenderer {
     ) {
         let output = match surface.get_current_texture() {
             Ok(t) => t,
-            Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => return,
             Err(_) => return,
         };
 
@@ -848,23 +438,44 @@ impl SceneRenderer {
                 occlusion_query_set: None,
             });
 
-            if self.instance_count > 0 {
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &self.camera_bind_grp, &[]);
-                pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-                pass.set_vertex_buffer(1, self.instance_buf.slice(..));
-                pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
-                pass.draw_indexed(0..self.index_count, 0, 0..self.instance_count);
-            }
-            pass.set_pipeline(&self.grid_pipeline);
+            // All pipelines share scene.layout, so one bind covers the pass.
             pass.set_bind_group(0, &self.camera_bind_grp, &[]);
+
+            pass.set_pipeline(&self.sky_pipeline);
+            pass.draw(0..3, 0..1);
+
+            // Parts and meshes share the instanced pipeline; meshes are just
+            // single-instance draws with their own geometry buffers.
+            let HasParts = self.shape_batches.iter().any(|b| b.instance_count > 0);
+            if HasParts || !self.mesh_order.is_empty() {
+                pass.set_pipeline(&self.part_pipeline);
+                for Batch in &self.shape_batches {
+                    if Batch.instance_count == 0 {
+                        continue;
+                    }
+                    pass.set_vertex_buffer(0, Batch.vertex_buf.slice(..));
+                    pass.set_vertex_buffer(1, Batch.instance_buf.slice(..));
+                    pass.set_index_buffer(Batch.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..Batch.index_count, 0, 0..Batch.instance_count);
+                }
+                for Key in &self.mesh_order {
+                    let Some(Cached) = self.mesh_cache.get(Key) else {
+                        continue;
+                    };
+                    pass.set_vertex_buffer(0, Cached.draw.vertex_buf.slice(..));
+                    pass.set_vertex_buffer(1, Cached.draw.instance_buf.slice(..));
+                    pass.set_index_buffer(Cached.draw.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..Cached.draw.index_count, 0, 0..1);
+                }
+            }
+
+            pass.set_pipeline(&self.grid_pipeline);
             pass.set_vertex_buffer(0, self.grid_vertex_buf.slice(..));
             pass.set_index_buffer(self.grid_index_buf.slice(..), wgpu::IndexFormat::Uint16);
             pass.draw_indexed(0..self.grid_index_count, 0, 0..1);
 
             if self.gizmo_count > 0 {
                 pass.set_pipeline(&self.gizmo_pipeline);
-                pass.set_bind_group(0, &self.camera_bind_grp, &[]);
                 pass.set_vertex_buffer(0, self.gizmo_vertex_buf.slice(..));
                 pass.draw(0..self.gizmo_count, 0..1);
             }
@@ -875,45 +486,129 @@ impl SceneRenderer {
     }
 }
 
+fn MakePipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+    desc: &PipelineDesc,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(desc.label),
+        source: wgpu::ShaderSource::Wgsl(desc.shader.into()),
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(desc.label),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: desc.buffers,
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(desc.blend),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: desc.topology,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: desc.cull,
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: desc.depth_write,
+            depth_compare: desc.depth_compare,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: MSAA_SAMPLES,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+    })
+}
+
+fn MakeInstanceBuffer(device: &wgpu::Device, Capacity: u32) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("shape.instances"),
+        size: Capacity as u64 * std::mem::size_of::<Instance>() as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 fn MakeMsaa(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
     width: u32,
     height: u32,
-) -> (wgpu::Texture, wgpu::TextureView) {
-    let tex = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("msaa"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 4,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-    (tex, view)
+) -> wgpu::TextureView {
+    device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("msaa"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: MSAA_SAMPLES,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+        .create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-fn MakeDepth(device: &wgpu::Device, width: u32, height: u32) -> (wgpu::Texture, wgpu::TextureView) {
-    let tex = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("depth"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 4,
-        dimension: wgpu::TextureDimension::D2,
-        format: DEPTH_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-    (tex, view)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WGSL only validates at pipeline creation, so build every scene pipeline
+    // against a real headless device.
+    #[test]
+    fn ShadersAndPipelinesValidate() {
+        let instance = wgpu::Instance::default();
+        let Some(adapter) = pollster::block_on(
+            instance.request_adapter(&wgpu::RequestAdapterOptions::default()),
+        ) else {
+            eprintln!("no GPU adapter available; skipping shader validation");
+            return;
+        };
+        let (device, _queue) = pollster::block_on(
+            adapter.request_device(&wgpu::DeviceDescriptor::default(), None),
+        )
+        .expect("request_device");
+        let _ = SceneRenderer::new(&device, wgpu::TextureFormat::Bgra8UnormSrgb, 4, 4);
+    }
+}
+
+fn MakeDepth(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
+    device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("depth"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: MSAA_SAMPLES,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+        .create_view(&wgpu::TextureViewDescriptor::default())
 }

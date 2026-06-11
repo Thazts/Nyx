@@ -13,7 +13,7 @@
 
 .Panel {
     position: fixed;
-    top: 0;
+    top: 32px;
     right: 0;
     bottom: 0;
     width: 340px;
@@ -23,12 +23,12 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    animation: SlideIn 0.32s var(--spring) both;
+    animation: SlideIn 0.28s var(--spring) both;
 }
 
 @keyframes SlideIn {
-    from { transform: translateX(100%); }
-    to   { transform: translateX(0); }
+    from { transform: translateX(14px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
 }
 
 .Header {

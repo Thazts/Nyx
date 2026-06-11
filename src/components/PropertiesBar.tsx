@@ -16,6 +16,11 @@ interface FileMetadata {
     Modified: string;
 }
 
+interface SelectedFaceInfo {
+    PartId: string;
+    FaceIndex: number;
+}
+
 interface PropertiesBarProps {
     SelectedEntry: FileEntry | null;
     Metadata?: FileMetadata | null;
@@ -63,8 +68,10 @@ export const PropertiesBar: React.FC<PropertiesBarProps> = ({
 }) => {
     const GizmoMode    = useStateKey<string>("GizmoMode");
     const SelectedPart = useStateKey<string | null>("SelectedPartId");
+    const SelectedFace = useStateKey<SelectedFaceInfo | null>("SelectedFace");
     const [Width, SetWidth] = useState(180);
     const [SplitHeight, SetSplitHeight] = useState(320);
+    const [ExtrudeDistance, SetExtrudeDistance] = useState(0.5);
     const IsResizingWidth = useRef(false);
     const IsResizingSplit = useRef(false);
     const OutputRef   = useRef<HTMLDivElement>(null);
@@ -162,14 +169,53 @@ export const PropertiesBar: React.FC<PropertiesBarProps> = ({
         StateService.Set({ Key: "GizmoMode", Value: Mode });
         RendererService.SetGizmoMode({ Mode }).catch(() => {});
     }, []);
+    const HandleSubdivideSelected = useCallback(() => {
+        RendererService.SubdivideSelected()
+            .then(() => {
+                StateService.Set({ Key: "SelectedFace", Value: null });
+                if (!SelectedPart) return;
+                RendererService.GetPart({ Id: SelectedPart })
+                    .then(d => SetPartData(d as Record<string, unknown> | null))
+                    .catch(() => {});
+            })
+            .catch(console.error);
+    }, [SelectedPart]);
+    const HandleExtrudeSelectedFace = useCallback(() => {
+        RendererService.ExtrudeSelectedFace({ Distance: ExtrudeDistance })
+            .then(Face => {
+                StateService.Set({ Key: "SelectedFace", Value: Face });
+                if (!SelectedPart) return;
+                RendererService.GetPart({ Id: SelectedPart })
+                    .then(d => SetPartData(d as Record<string, unknown> | null))
+                    .catch(() => {});
+            })
+            .catch(console.error);
+    }, [ExtrudeDistance, SelectedPart]);
+    const HandleDeleteSelectedFace = useCallback(() => {
+        RendererService.DeleteSelectedFace()
+            .then(() => {
+                StateService.Set({ Key: "SelectedFace", Value: null });
+                if (!SelectedPart) return;
+                RendererService.GetPart({ Id: SelectedPart })
+                    .then(d => SetPartData(d as Record<string, unknown> | null))
+                    .catch(() => {});
+            })
+            .catch(console.error);
+    }, [SelectedPart]);
 
     if (IsViewportTab) {
+        const IsMeshSelection = PartData?.["Cmd"] === "AddMesh";
         PropertiesBody = (
             <div className={styles.ViewportControls}>
                 <div className={styles.ViewportControlLabel}>Selection</div>
                 <div className={SelectedPart ? styles.SelectedInfo : styles.SelectedInfoEmpty}>
                     {SelectedPart ? SelectedPart : "Nothing selected"}
                 </div>
+                {SelectedFace && (
+                    <div className={styles.SelectedInfo}>
+                        Face {SelectedFace.FaceIndex}
+                    </div>
+                )}
                 <div className={styles.ViewportControlLabel}>Transform</div>
                 <div className={styles.GizmoModeRow}>
                     <button
@@ -240,6 +286,51 @@ export const PropertiesBar: React.FC<PropertiesBarProps> = ({
                                 );
                             })}
                         </div>
+                        {IsMeshSelection && (
+                            <div className={styles.InspectorGroup}>
+                                <div className={styles.ViewportControlLabel}>Mesh</div>
+                                <button
+                                    className={styles.GizmoBtn}
+                                    onClick={HandleSubdivideSelected}
+                                    title="Subdivide selected mesh"
+                                >
+                                    Subdivide
+                                </button>
+                                {SelectedFace && (
+                                    <label className={styles.InspectorRow}>
+                                        <span className={styles.AxisLabel}>Ex</span>
+                                        <input
+                                            className={styles.InspectorInput}
+                                            type="number"
+                                            step={0.1}
+                                            value={ExtrudeDistance}
+                                            onChange={E => {
+                                                const Value = parseFloat(E.target.value);
+                                                SetExtrudeDistance(Number.isFinite(Value) ? Value : 0);
+                                            }}
+                                        />
+                                    </label>
+                                )}
+                                {SelectedFace && (
+                                    <button
+                                        className={styles.GizmoBtn}
+                                        onClick={HandleExtrudeSelectedFace}
+                                        title="Extrude selected face"
+                                    >
+                                        Extrude
+                                    </button>
+                                )}
+                                {SelectedFace && (
+                                    <button
+                                        className={styles.GizmoBtn}
+                                        onClick={HandleDeleteSelectedFace}
+                                        title="Delete selected face"
+                                    >
+                                        Delete Face
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

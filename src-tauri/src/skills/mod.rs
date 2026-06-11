@@ -1,20 +1,20 @@
 pub struct Skill {
-    pub id:      &'static str,
-    pub label:   &'static str,
-    pub domain:  &'static str,
-    pub when:    &'static str,
+    pub id: &'static str,
+    pub label: &'static str,
+    pub domain: &'static str,
+    pub when: &'static str,
     content: &'static str,
 }
 
 pub struct SkillBlock {
-    pub label:          &'static str,
-    pub domain:         &'static str,
-    pub content:        String,
+    pub label: &'static str,
+    pub domain: &'static str,
+    pub content: String,
     pub classification: u8,
 }
 
 pub struct ResolveResult {
-    pub loaded:  Vec<SkillBlock>,
+    pub loaded: Vec<SkillBlock>,
     pub blocked: Vec<(String, &'static str)>,
 }
 
@@ -30,28 +30,28 @@ fn ParseClassificationOwned(content: &str) -> (u8, String) {
 fn ScanForInjection(content: &str) -> Option<&'static str> {
     let lower = content.to_lowercase();
     let triggers: &[(&str, &'static str)] = &[
-        ("ignore previous instructions",        "instruction override"),
-        ("ignore the above instructions",       "instruction override"),
-        ("ignore all previous",                 "instruction override"),
-        ("disregard the above",                 "instruction override"),
-        ("disregard all previous",              "instruction override"),
-        ("forget everything above",             "instruction override"),
-        ("forget all previous instructions",    "instruction override"),
-        ("override your instructions",          "instruction override"),
-        ("override this system prompt",         "instruction override"),
-        ("supersede this system prompt",        "instruction override"),
-        ("you are now",                         "identity override"),
-        ("your new role is",                    "identity override"),
-        ("your true identity",                  "identity override"),
-        ("pretend you are",                     "identity override"),
-        ("act as if you are",                   "identity override"),
-        ("new persona:",                        "identity override"),
-        ("<system>",                            "prompt injection marker"),
-        ("[system]",                            "prompt injection marker"),
-        ("[system prompt]",                     "prompt injection marker"),
-        ("<|im_start|>",                        "prompt injection marker"),
-        ("<|endoftext|>",                       "prompt injection marker"),
-        ("### instruction",                     "prompt injection marker"),
+        ("ignore previous instructions", "instruction override"),
+        ("ignore the above instructions", "instruction override"),
+        ("ignore all previous", "instruction override"),
+        ("disregard the above", "instruction override"),
+        ("disregard all previous", "instruction override"),
+        ("forget everything above", "instruction override"),
+        ("forget all previous instructions", "instruction override"),
+        ("override your instructions", "instruction override"),
+        ("override this system prompt", "instruction override"),
+        ("supersede this system prompt", "instruction override"),
+        ("you are now", "identity override"),
+        ("your new role is", "identity override"),
+        ("your true identity", "identity override"),
+        ("pretend you are", "identity override"),
+        ("act as if you are", "identity override"),
+        ("new persona:", "identity override"),
+        ("<system>", "prompt injection marker"),
+        ("[system]", "prompt injection marker"),
+        ("[system prompt]", "prompt injection marker"),
+        ("<|im_start|>", "prompt injection marker"),
+        ("<|endoftext|>", "prompt injection marker"),
+        ("### instruction", "prompt injection marker"),
     ];
     for (trigger, category) in triggers {
         if lower.contains(trigger) {
@@ -93,10 +93,10 @@ pub static SELF_HELP: Skill = Skill {
 };
 
 pub static LUA_LUAU: Skill = Skill {
-    id:      "lua_luau",
-    label:   "LuaLuau",
-    domain:  "Lua and Luau programming, including Roblox development patterns",
-    when:    "writing, reviewing, or debugging Lua or Luau code, especially in a Roblox context",
+    id: "lua_luau",
+    label: "LuaLuau",
+    domain: "Lua and Luau programming, including Roblox development patterns",
+    when: "writing, reviewing, or debugging Lua or Luau code, especially in a Roblox context",
     content: include_str!("../../skills/LuaLuau.md"),
 };
 
@@ -111,7 +111,7 @@ pub static VIEWPORT_MANUAL: Skill = Skill {
 pub static ALL: &[&Skill] = &[&FENGSHUI_PROTOCOL, &SELF_HELP, &LUA_LUAU, &VIEWPORT_MANUAL];
 
 pub fn Resolve(ids: &[String]) -> ResolveResult {
-    let mut loaded  = Vec::new();
+    let mut loaded = Vec::new();
     let mut blocked = Vec::new();
     for id in ids {
         match ALL.iter().find(|s| s.id == id.as_str()) {
@@ -120,7 +120,12 @@ pub fn Resolve(ids: &[String]) -> ResolveResult {
                 let raw = LoadContent(skill);
                 let (classification, content) = ParseClassificationOwned(&raw);
                 match ScanForInjection(&content) {
-                    None         => loaded.push(SkillBlock { label: skill.label, domain: skill.domain, content, classification }),
+                    None => loaded.push(SkillBlock {
+                        label: skill.label,
+                        domain: skill.domain,
+                        content,
+                        classification,
+                    }),
                     Some(reason) => blocked.push((id.clone(), reason)),
                 }
             }

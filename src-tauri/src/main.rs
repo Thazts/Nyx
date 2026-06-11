@@ -2,6 +2,8 @@
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
+// PascalCase is the project-wide naming convention (Thazts Framework).
+#![allow(non_snake_case)]
 
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
@@ -44,6 +46,7 @@ fn main() {
 
             app.manage(Arc::new(Mutex::new(ApprovalState::default())));
             app.manage(AppState::default());
+            app.manage(commands::scene_runner::LiveSceneState::default());
 
             Ok(())
         })
@@ -59,12 +62,12 @@ fn main() {
             commands::capture_command,
             commands::run_file,
             commands::run_scene,
-            commands::run_live_scene,
+            commands::start_live_scene,
+            commands::stop_live_scene,
             commands::delete_path,
             commands::rename_path,
             commands::create_folder,
             commands::renderer_load_scene,
-            commands::renderer_load_live_scene,
             commands::renderer_set_bounds,
             commands::renderer_set_visible,
             commands::renderer_detach,
@@ -86,6 +89,9 @@ fn main() {
             commands::renderer_undo,
             commands::renderer_redo,
             commands::renderer_delete_part,
+            commands::renderer_subdivide_selected,
+            commands::renderer_extrude_selected_face,
+            commands::renderer_delete_selected_face,
             commands::renderer_frame_selected,
             commands::renderer_end_drag,
             commands::get_system_stats,
@@ -98,6 +104,7 @@ fn main() {
             commands::ai_launch_nyx_cli,
             commands::get_app_settings,
             commands::save_app_settings,
+            commands::load_model_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

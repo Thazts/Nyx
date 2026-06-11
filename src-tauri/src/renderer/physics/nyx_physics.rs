@@ -192,12 +192,16 @@ impl NyxPhysics {
 
             let PreviousBody = Previous.get(&Id);
             let Position = if !Anchored {
-                PreviousBody.map(|B| B.Position).unwrap_or_else(|| ReadPosition(Command))
+                PreviousBody
+                    .map(|B| B.Position)
+                    .unwrap_or_else(|| ReadPosition(Command))
             } else {
                 ReadPosition(Command)
             };
             let Rotation = if !Anchored {
-                PreviousBody.map(|B| B.Rotation).unwrap_or_else(|| ReadRotation(Command))
+                PreviousBody
+                    .map(|B| B.Rotation)
+                    .unwrap_or_else(|| ReadRotation(Command))
             } else {
                 ReadRotation(Command)
             };

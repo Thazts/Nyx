@@ -19,7 +19,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
-use super::{CameraInput, SceneState, UndoHistory};
+use super::{CameraInput, SceneState, SelectedFace, UndoHistory};
 extern "system" {
     fn SetCapture(hwnd: HWND) -> HWND;
     fn ReleaseCapture() -> windows_sys::Win32::Foundation::BOOL;
@@ -80,10 +80,13 @@ thread_local! {
     static GIZMO_AXIS: RefCell<String>    = RefCell::new(String::new());
 }
 
-fn MarkInteraction() {
+// Only object edits (gizmo drags) arm the live-reload gate. Camera moves
+// (orbit/pan/zoom/fly) must never call this, or script playback freezes
+// whenever the camera is in motion.
+fn MarkEditInteraction() {
     if let Some(sa) = VP_STATE.get() {
         if let Ok(mut s) = sa.lock() {
-            s.last_interaction = std::time::Instant::now();
+            s.last_edit_interaction = std::time::Instant::now();
         }
     }
 }
@@ -175,6 +178,120 @@ fn GizmoMetrics(sx: f32, sy: f32, sz: f32) -> (f32, f32, f32, f32) {
     (len, MovePick, ScalePick, RotatePick)
 }
 
+fn IsEditableObject(Command: &serde_json::Value) -> bool {
+    matches!(
+        Command.get("Cmd").and_then(|Value| Value.as_str()),
+        Some("AddPart") | Some("AddMesh")
+    )
+}
+
+fn ObjectScalar(Command: &serde_json::Value, Key: &str, Field: &str, Fallback: f32) -> f32 {
+    Command
+        .get(Key)
+        .and_then(|Object| Object.get(Field))
+        .and_then(|Value| Value.as_f64())
+        .map(|Value| Value as f32)
+        .unwrap_or(Fallback)
+}
+
+fn ObjectExtent(Command: &serde_json::Value, Field: &str, Fallback: f32) -> f32 {
+    let Base = Command
+        .get("Bounds")
+        .or_else(|| Command.get("Size"))
+        .and_then(|Object| Object.get(Field))
+        .and_then(|Value| Value.as_f64())
+        .map(|Value| Value as f32)
+        .unwrap_or(Fallback);
+    if Command.get("Bounds").is_some() {
+        Base * ObjectScalar(Command, "Size", Field, 1.0).abs().max(0.001)
+    } else {
+        Base
+    }
+}
+
+fn MeshPoint(Value: &serde_json::Value) -> Option<[f32; 3]> {
+    Some([
+        Value.get("X")?.as_f64()? as f32,
+        Value.get("Y")?.as_f64()? as f32,
+        Value.get("Z")?.as_f64()? as f32,
+    ])
+}
+
+fn EulerToQuat(rx: f32, ry: f32, rz: f32) -> glam::Quat {
+    let (cx, sx) = ((rx * 0.5).cos(), (rx * 0.5).sin());
+    let (cy, sy) = ((ry * 0.5).cos(), (ry * 0.5).sin());
+    let (cz, sz) = ((rz * 0.5).cos(), (rz * 0.5).sin());
+    glam::Quat::from_xyzw(
+        cy * sx * cz + sy * cx * sz,
+        sy * cx * cz - cy * sx * sz,
+        cy * cx * sz - sy * sx * cz,
+        cy * cx * cz + sy * sx * sz,
+    )
+    .normalize()
+}
+
+fn TransformPoint(Command: &serde_json::Value, Point: [f32; 3]) -> glam::Vec3 {
+    let Position = glam::Vec3::new(
+        ObjectScalar(Command, "Position", "X", 0.0),
+        ObjectScalar(Command, "Position", "Y", 0.0),
+        ObjectScalar(Command, "Position", "Z", 0.0),
+    );
+    let Size = glam::Vec3::new(
+        ObjectScalar(Command, "Size", "X", 1.0),
+        ObjectScalar(Command, "Size", "Y", 1.0),
+        ObjectScalar(Command, "Size", "Z", 1.0),
+    );
+    let CFrame = Command.get("CFrame");
+    let Rotation = EulerToQuat(
+        CFrame
+            .and_then(|Object| Object.get("RX"))
+            .and_then(|Value| Value.as_f64())
+            .unwrap_or(0.0) as f32,
+        CFrame
+            .and_then(|Object| Object.get("RY"))
+            .and_then(|Value| Value.as_f64())
+            .unwrap_or(0.0) as f32,
+        CFrame
+            .and_then(|Object| Object.get("RZ"))
+            .and_then(|Value| Value.as_f64())
+            .unwrap_or(0.0) as f32,
+    );
+    Position + Rotation * (glam::Vec3::new(Point[0], Point[1], Point[2]) * Size)
+}
+
+fn RayTriangle(
+    Origin: glam::Vec3,
+    Direction: glam::Vec3,
+    A: glam::Vec3,
+    B: glam::Vec3,
+    C: glam::Vec3,
+) -> Option<f32> {
+    let E1 = B - A;
+    let E2 = C - A;
+    let P = Direction.cross(E2);
+    let Det = E1.dot(P);
+    if Det.abs() < 1e-6 {
+        return None;
+    }
+    let InvDet = 1.0 / Det;
+    let T = Origin - A;
+    let U = T.dot(P) * InvDet;
+    if !(0.0..=1.0).contains(&U) {
+        return None;
+    }
+    let Q = T.cross(E1);
+    let V = Direction.dot(Q) * InvDet;
+    if V < 0.0 || U + V > 1.0 {
+        return None;
+    }
+    let HitT = E2.dot(Q) * InvDet;
+    if HitT >= 0.0 {
+        Some(HitT)
+    } else {
+        None
+    }
+}
+
 fn PushUndo(s: &SceneState, u: &mut UndoHistory) {
     u.undo_stack.push(s.commands.clone());
     if u.undo_stack.len() > 50 {
@@ -185,22 +302,16 @@ fn PushUndo(s: &SceneState, u: &mut UndoHistory) {
 
 fn PartPos(s: &SceneState, id: &str) -> Option<glam::Vec3> {
     for cmd in &s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+        if !IsEditableObject(cmd) {
             continue;
         }
         if cmd.get("Id").and_then(|v| v.as_str()) != Some(id) {
             continue;
         }
-        let f = |k: &str, ff: &str| {
-            cmd.get(k)
-                .and_then(|o| o.get(ff))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0) as f32
-        };
         return Some(glam::Vec3::new(
-            f("Position", "X"),
-            f("Position", "Y"),
-            f("Position", "Z"),
+            ObjectScalar(cmd, "Position", "X", 0.0),
+            ObjectScalar(cmd, "Position", "Y", 0.0),
+            ObjectScalar(cmd, "Position", "Z", 0.0),
         ));
     }
     None
@@ -218,26 +329,20 @@ fn GizmoHit(s: &SceneState, NdcX: f32, NdcY: f32) -> Option<String> {
     let (o, d) = s.camera.GetRay(NdcX, NdcY);
 
     for cmd in &s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+        if !IsEditableObject(cmd) {
             continue;
         }
         if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
             continue;
         }
-        let gf = |k: &str, f: &str| -> f32 {
-            cmd.get(k)
-                .and_then(|o| o.get(f))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0) as f32
-        };
         let c = glam::Vec3::new(
-            gf("Position", "X"),
-            gf("Position", "Y"),
-            gf("Position", "Z"),
+            ObjectScalar(cmd, "Position", "X", 0.0),
+            ObjectScalar(cmd, "Position", "Y", 0.0),
+            ObjectScalar(cmd, "Position", "Z", 0.0),
         );
-        let sx = gf("Size", "X");
-        let sy = gf("Size", "Y");
-        let sz = gf("Size", "Z");
+        let sx = ObjectExtent(cmd, "X", 2.0);
+        let sy = ObjectExtent(cmd, "Y", 2.0);
+        let sz = ObjectExtent(cmd, "Z", 2.0);
         let (len, MovePick, ScalePick, RotatePick) = GizmoMetrics(sx, sy, sz);
 
         return match s.gizmo_mode.as_str() {
@@ -305,30 +410,68 @@ fn GizmoHit(s: &SceneState, NdcX: f32, NdcY: f32) -> Option<String> {
     None
 }
 
+fn PickMeshFace(
+    Command: &serde_json::Value,
+    Origin: glam::Vec3,
+    Direction: glam::Vec3,
+) -> Option<(f32, usize)> {
+    if Command.get("Cmd").and_then(|Value| Value.as_str()) != Some("AddMesh") {
+        return None;
+    }
+    let SourceVertices = Command.get("Vertices").and_then(|Value| Value.as_array())?;
+    let SourceIndices = Command.get("Indices").and_then(|Value| Value.as_array())?;
+    let mut Best: Option<(f32, usize)> = None;
+    for (FaceIndex, Triangle) in SourceIndices.chunks(3).enumerate() {
+        if Triangle.len() != 3 {
+            continue;
+        }
+        let AIndex = Triangle[0].as_u64()? as usize;
+        let BIndex = Triangle[1].as_u64()? as usize;
+        let CIndex = Triangle[2].as_u64()? as usize;
+        let A = TransformPoint(Command, MeshPoint(SourceVertices.get(AIndex)?)?);
+        let B = TransformPoint(Command, MeshPoint(SourceVertices.get(BIndex)?)?);
+        let C = TransformPoint(Command, MeshPoint(SourceVertices.get(CIndex)?)?);
+        if let Some(T) = RayTriangle(Origin, Direction, A, B, C) {
+            if Best.map(|(BestT, _)| T < BestT).unwrap_or(true) {
+                Best = Some((T, FaceIndex));
+            }
+        }
+    }
+    Best
+}
+
 fn ClickSelect(s: &mut SceneState, NdcX: f32, NdcY: f32) -> Option<String> {
     let (o, d) = s.camera.GetRay(NdcX, NdcY);
     let mut BestT = f32::MAX;
     let mut BestId: Option<String> = None;
+    let mut BestFace: Option<SelectedFace> = None;
     for cmd in &s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+        if !IsEditableObject(cmd) {
             continue;
         }
-        let gf = |k: &str, f: &str, def: f32| {
-            cmd.get(k)
-                .and_then(|o| o.get(f))
-                .and_then(|v| v.as_f64())
-                .map(|v| v as f32)
-                .unwrap_or(def)
-        };
+        if let Some((T, FaceIndex)) = PickMeshFace(cmd, o, d) {
+            if T < BestT {
+                BestT = T;
+                BestId = cmd
+                    .get("Id")
+                    .and_then(|Value| Value.as_str())
+                    .map(|Value| Value.to_string());
+                BestFace = BestId.as_ref().map(|PartId| SelectedFace {
+                    part_id: PartId.clone(),
+                    face_index: FaceIndex,
+                });
+                continue;
+            }
+        }
         let c = glam::Vec3::new(
-            gf("Position", "X", 0.),
-            gf("Position", "Y", 0.),
-            gf("Position", "Z", 0.),
+            ObjectScalar(cmd, "Position", "X", 0.0),
+            ObjectScalar(cmd, "Position", "Y", 0.0),
+            ObjectScalar(cmd, "Position", "Z", 0.0),
         );
         let e = glam::Vec3::new(
-            gf("Size", "X", 1.),
-            gf("Size", "Y", 1.),
-            gf("Size", "Z", 1.),
+            ObjectExtent(cmd, "X", 1.0),
+            ObjectExtent(cmd, "Y", 1.0),
+            ObjectExtent(cmd, "Z", 1.0),
         ) * 0.5;
         if let Some(t) = RayAabb(o, d, c - e, c + e) {
             if t < BestT {
@@ -337,10 +480,12 @@ fn ClickSelect(s: &mut SceneState, NdcX: f32, NdcY: f32) -> Option<String> {
                     .get("Id")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
+                BestFace = None;
             }
         }
     }
     s.selected = BestId.clone();
+    s.selected_face = BestFace;
     s.dirty = true;
     BestId
 }
@@ -375,7 +520,7 @@ fn DoMoveDrag(
     let (co, cd) = s.camera.GetRay(cnx, cny);
     let np = pp + ad * (ClosestT(co, cd, pp, ad) - ClosestT(po, pd, pp, ad));
     for cmd in &mut s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+        if !IsEditableObject(cmd) {
             continue;
         }
         if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
@@ -458,7 +603,7 @@ fn DoRotateDrag(
         _ => "RZ",
     };
     for cmd in &mut s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+        if !IsEditableObject(cmd) {
             continue;
         }
         if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
@@ -511,7 +656,7 @@ fn DoScaleDrag(
     let (co, cd) = s.camera.GetRay(cnx, cny);
     let delta = ClosestT(co, cd, pp, ad) - ClosestT(po, pd, pp, ad);
     for cmd in &mut s.commands {
-        if cmd.get("Cmd").and_then(|v| v.as_str()) != Some("AddPart") {
+        if !IsEditableObject(cmd) {
             continue;
         }
         if cmd.get("Id").and_then(|v| v.as_str()) != Some(sel.as_str()) {
@@ -555,7 +700,6 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
         WM_LBUTTONDOWN => {
             let x = (lparam & 0xFFFF) as i16;
             let y = ((lparam >> 16) & 0xFFFF) as i16;
-            MarkInteraction();
             let axis = VP_STATE.get().and_then(|sa| sa.lock().ok()).and_then(|s| {
                 let (_, _, w, h) = s.bounds;
                 if w == 0 || h == 0 {
@@ -565,6 +709,9 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
                 let ny = 1.0 - (y as f32 / h as f32) * 2.0;
                 GizmoHit(&s, nx, ny)
             });
+            if axis.is_some() {
+                MarkEditInteraction();
+            }
 
             DRAG.with(|d| {
                 let mut dr = d.borrow_mut();
@@ -603,8 +750,8 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
 
             let dx = (x - prev_x) as f32;
             let dy = (y - prev_y) as f32;
-            if mode != DragMode::None && (dx != 0.0 || dy != 0.0) {
-                MarkInteraction();
+            if mode == DragMode::GizmoDrag && (dx != 0.0 || dy != 0.0) {
+                MarkEditInteraction();
             }
 
             match mode {
@@ -660,7 +807,6 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
         WM_LBUTTONUP => {
             let x = (lparam & 0xFFFF) as i16;
             let y = ((lparam >> 16) & 0xFFFF) as i16;
-            MarkInteraction();
             ReleaseCapture();
 
             let (had_drag, mode) = DRAG.with(|d| {
@@ -672,6 +818,7 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
             });
 
             if mode == DragMode::GizmoDrag {
+                MarkEditInteraction();
                 if let Some(sa) = VP_STATE.get() {
                     if let Ok(mut s) = sa.lock() {
                         s.drag_undo_pushed = false;
@@ -687,8 +834,15 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
                             let nx = (x as f32 / w as f32) * 2.0 - 1.0;
                             let ny = 1.0 - (y as f32 / h as f32) * 2.0;
                             let sel = ClickSelect(&mut s, nx, ny);
+                            let Face = s.selected_face.as_ref().map(|Face| {
+                                serde_json::json!({
+                                    "PartId": Face.part_id,
+                                    "FaceIndex": Face.face_index,
+                                })
+                            });
                             if let Some(app) = VP_APP.get() {
                                 let _ = app.emit_all("vp-selected", sel);
+                                let _ = app.emit_all("vp-face-selected", Face);
                             }
                         }
                     }
@@ -700,7 +854,6 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
         WM_RBUTTONDOWN => {
             let x = (lparam & 0xFFFF) as i16;
             let y = ((lparam >> 16) & 0xFFFF) as i16;
-            MarkInteraction();
             let timer = SetTimer(hwnd, 1, 16, None) as usize;
             DRAG.with(|d| {
                 let mut dr = d.borrow_mut();
@@ -717,7 +870,6 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
         }
 
         WM_RBUTTONUP => {
-            MarkInteraction();
             ReleaseCapture();
             DRAG.with(|d| {
                 let mut dr = d.borrow_mut();
@@ -732,7 +884,6 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
 
         WM_MOUSEWHEEL => {
             let delta = (wparam >> 16) as i16;
-            MarkInteraction();
             if let Some(ci) = VP_CAM.get() {
                 if let Ok(mut ci) = ci.lock() {
                     ci.zoom += delta as f32 / 120.0;
@@ -747,7 +898,6 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
                 let rgt = KeyHeld(0x44) - KeyHeld(0x41); // D, A
                 let up = KeyHeld(0x45) - KeyHeld(0x51); // E, Q
                 if fwd != 0.0 || rgt != 0.0 || up != 0.0 {
-                    MarkInteraction();
                     if let Some(ci) = VP_CAM.get() {
                         if let Ok(mut ci) = ci.lock() {
                             ci.forward += fwd;

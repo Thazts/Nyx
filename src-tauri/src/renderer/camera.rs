@@ -5,8 +5,11 @@ use glam::{Mat4, Vec3};
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub struct CameraUniform {
     pub view_proj: [[f32; 4]; 4],
+    pub inv_view_proj: [[f32; 4]; 4],
     pub view_pos: [f32; 3],
-    pub _pad: f32,
+    pub _pad0: f32,
+    pub sky_color: [f32; 3],
+    pub _pad1: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -100,22 +103,26 @@ impl OrbitalCamera {
         self.elevation = (d.y / self.distance).clamp(-1.0, 1.0).asin();
     }
 
-    pub fn ToUniform(&self) -> CameraUniform {
-        let eye = self.eye();
-        let view = Mat4::look_at_rh(eye, self.target, Vec3::Y);
+    pub fn ViewProj(&self) -> Mat4 {
+        let view = Mat4::look_at_rh(self.eye(), self.target, Vec3::Y);
         let proj = Mat4::perspective_rh(self.fov_y, self.aspect, self.near, self.far);
+        proj * view
+    }
+
+    pub fn ToUniform(&self, SkyColor: [f32; 3]) -> CameraUniform {
+        let ViewProj = self.ViewProj();
         CameraUniform {
-            view_proj: (proj * view).to_cols_array_2d(),
-            view_pos: eye.to_array(),
-            _pad: 0.0,
+            view_proj: ViewProj.to_cols_array_2d(),
+            inv_view_proj: ViewProj.inverse().to_cols_array_2d(),
+            view_pos: self.eye().to_array(),
+            _pad0: 0.0,
+            sky_color: SkyColor,
+            _pad1: 0.0,
         }
     }
 
     pub fn GetRay(&self, NdcX: f32, NdcY: f32) -> (Vec3, Vec3) {
-        let eye = self.eye();
-        let view = Mat4::look_at_rh(eye, self.target, Vec3::Y);
-        let proj = Mat4::perspective_rh(self.fov_y, self.aspect, self.near, self.far);
-        let InvVp = (proj * view).inverse();
+        let InvVp = self.ViewProj().inverse();
 
         let NearPt = InvVp.project_point3(Vec3::new(NdcX, NdcY, 0.0));
         let FarPt = InvVp.project_point3(Vec3::new(NdcX, NdcY, 1.0));

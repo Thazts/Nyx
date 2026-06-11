@@ -64,7 +64,6 @@ const Luau: CI[] = [
     V("script",     "LuaSourceContainer"),  V("Enum", "namespace"),
     T("Instance"), T("Vector3"), T("Vector2"), T("CFrame"),
     T("Color3"),   T("UDim2"),   T("TweenInfo"),
-    // Snippets
     S("function", "local function ()\n    \nend",         "local function…end",     16),
     S("if",       "if  then\n    \nend",                  "if…then…end",             3),
     S("ifelse",   "if  then\n    \nelse\n    \nend",      "if…then…else…end",        3),

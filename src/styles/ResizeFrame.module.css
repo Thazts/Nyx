@@ -1,0 +1,70 @@
+.Frame {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+}
+
+.N {
+    position: absolute;
+    top: 0; left: 8px; right: 8px;
+    height: 5px;
+    cursor: n-resize;
+    pointer-events: all;
+}
+
+.S {
+    position: absolute;
+    bottom: 0; left: 8px; right: 8px;
+    height: 5px;
+    cursor: s-resize;
+    pointer-events: all;
+}
+
+.E {
+    position: absolute;
+    right: 0; top: 8px; bottom: 8px;
+    width: 5px;
+    cursor: e-resize;
+    pointer-events: all;
+}
+
+.W {
+    position: absolute;
+    left: 0; top: 8px; bottom: 8px;
+    width: 5px;
+    cursor: w-resize;
+    pointer-events: all;
+}
+
+.NE {
+    position: absolute;
+    top: 0; right: 0;
+    width: 10px; height: 10px;
+    cursor: ne-resize;
+    pointer-events: all;
+}
+
+.NW {
+    position: absolute;
+    top: 0; left: 0;
+    width: 10px; height: 10px;
+    cursor: nw-resize;
+    pointer-events: all;
+}
+
+.SE {
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 10px; height: 10px;
+    cursor: se-resize;
+    pointer-events: all;
+}
+
+.SW {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 10px; height: 10px;
+    cursor: sw-resize;
+    pointer-events: all;
+}

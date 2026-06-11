@@ -30,11 +30,11 @@ use zeroize::Zeroizing;
 #[path = "../../commands/agent.rs"]
 mod agent;
 #[allow(dead_code)]
-#[path = "../../skills/mod.rs"]
-mod skills;
-#[allow(dead_code)]
 #[path = "../../agent_runtime/mod.rs"]
 mod agent_runtime;
+#[allow(dead_code)]
+#[path = "../../skills/mod.rs"]
+mod skills;
 
 const KEYRING_SERVICE: &str = "nyx-ide";
 const KEYRING_ANTHROPIC: &str = "anthropic";
@@ -144,7 +144,8 @@ async fn AsyncMain() -> Result<(), String> {
     let ApiKey = ProviderKey(&options.provider);
     let ToolSettings = BuildToolSettings(&settings, options.workspace.clone())?;
     let mode = agent::AgentMode::FromStr(&options.mode);
-    let system = agent::BuildSystemPrompt(options.workspace.as_deref(), &mode, &[], &options.provider);
+    let system =
+        agent::BuildSystemPrompt(options.workspace.as_deref(), &mode, &[], &options.provider);
     let mut messages: Vec<Value> = Vec::new();
 
     let mut header = CliHeader {
@@ -550,9 +551,9 @@ fn RenderPromptInput(input: &str, selected: usize, RenderedLines: &mut u16) -> R
 
 async fn FetchTopUpStatus(provider: &str, ApiKey: &str) -> String {
     match provider {
-        "deepseek"  => FetchDeepseekBalance(ApiKey).await,
+        "deepseek" => FetchDeepseekBalance(ApiKey).await,
         "anthropic" => "Console billing page".to_string(),
-        "openai"    => "platform.openai.com/usage".to_string(),
+        "openai" => "platform.openai.com/usage".to_string(),
         _ => "unavailable".to_string(),
     }
 }
@@ -890,8 +891,8 @@ fn LoadAppSettings() -> AppSettings {
 fn ProviderModel(provider: &str) -> Result<(String, bool), String> {
     match provider {
         "anthropic" => Ok(("claude-sonnet-4-6".to_string(), true)),
-        "deepseek"  => Ok(("deepseek-chat".to_string(), false)),
-        "openai"    => Ok(("gpt-4o".to_string(), false)),
+        "deepseek" => Ok(("deepseek-chat".to_string(), false)),
+        "openai" => Ok(("gpt-4o".to_string(), false)),
         _ => Err(format!("Unknown provider: {provider}")),
     }
 }
@@ -899,17 +900,21 @@ fn ProviderModel(provider: &str) -> Result<(String, bool), String> {
 fn ProviderKey(provider: &str) -> Option<Zeroizing<String>> {
     match provider {
         "anthropic" => GetKeyringPassword(KEYRING_ANTHROPIC),
-        "deepseek"  => GetKeyringPassword(KEYRING_DEEPSEEK),
-        "openai"    => GetKeyringPassword(KEYRING_OPENAI),
+        "deepseek" => GetKeyringPassword(KEYRING_DEEPSEEK),
+        "openai" => GetKeyringPassword(KEYRING_OPENAI),
         _ => None,
     }
 }
 
 fn MissingKeyMessage(provider: &str) -> String {
     match provider {
-        "anthropic" => "Anthropic API key is not configured. Configure it in Nyx settings.".to_string(),
-        "deepseek"  => "DeepSeek API key is not configured. Configure it in Nyx settings.".to_string(),
-        "openai"    => "OpenAI API key is not configured. Configure it in Nyx settings.".to_string(),
+        "anthropic" => {
+            "Anthropic API key is not configured. Configure it in Nyx settings.".to_string()
+        }
+        "deepseek" => {
+            "DeepSeek API key is not configured. Configure it in Nyx settings.".to_string()
+        }
+        "openai" => "OpenAI API key is not configured. Configure it in Nyx settings.".to_string(),
         _ => format!("{provider} API key is not configured."),
     }
 }

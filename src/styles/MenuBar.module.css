@@ -1,0 +1,135 @@
+.MenuBar {
+    display: flex;
+    align-items: stretch;
+    height: 100%;
+    flex-shrink: 0;
+    padding: 0 2px;
+}
+
+.MenuWrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.Trigger {
+    height: 100%;
+    padding: 0 9px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    font-size: 11px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    transition: color var(--tf), background var(--tf), transform var(--td-fast) var(--spring);
+}
+
+.Trigger:hover {
+    color: var(--txt2);
+    background: rgba(255,255,255,0.06);
+    transform: scale(1.06);
+}
+
+.Trigger:active {
+    transform: scale(0.94);
+    transition-duration: var(--tf);
+}
+
+.TriggerOpen {
+    color: var(--txt);
+    background: rgba(255,255,255,0.08);
+    transform: scale(1) !important;
+}
+
+.Dropdown {
+    position: absolute;
+    top: calc(100% + 3px);
+    left: 0;
+    min-width: 230px;
+    background: var(--surf);
+    border: 1px solid var(--brd);
+    border-radius: 8px;
+    box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0,0,0,0.2);
+    padding: 4px 0;
+    z-index: 200;
+    animation: DropIn 0.22s var(--spring) both;
+    transform-origin: top left;
+}
+
+@keyframes DropIn {
+    from { opacity: 0; transform: scale(0.92) translateY(-6px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+.Item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: var(--txt2);
+    font-size: 11px;
+    font-family: 'Syne', sans-serif;
+    text-align: left;
+    cursor: pointer;
+    gap: 24px;
+    transition: background var(--tf), color var(--tf), transform var(--td-fast) var(--spring);
+}
+
+.Item:hover {
+    background: var(--acc08);
+    color: var(--txt);
+    transform: translateX(3px);
+}
+
+.Item:active {
+    transform: scale(0.97) translateX(3px);
+    transition-duration: var(--tf);
+}
+
+.ItemLabel {
+    flex: 1;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.ItemShortcut {
+    font-size: 10px;
+    color: var(--txt3);
+    font-family: 'JetBrains Mono', monospace;
+    flex-shrink: 0;
+    transition: color var(--tf);
+}
+
+.Item:hover .ItemShortcut {
+    color: var(--txt2);
+}
+
+.ItemDanger .ItemLabel {
+    color: #c97070;
+}
+
+.ItemDanger:hover {
+    background: rgba(201,112,112,0.1);
+}
+
+.ItemDanger:hover .ItemLabel {
+    color: #d98888;
+}
+
+.ItemDanger:hover .ItemShortcut {
+    color: #c97070;
+}
+
+.Sep {
+    height: 1px;
+    background: var(--brd);
+    margin: 3px 6px;
+}

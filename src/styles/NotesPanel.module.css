@@ -1,0 +1,492 @@
+.Backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.32);
+    z-index: 50;
+    animation: BdIn 0.18s ease both;
+}
+
+@keyframes BdIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.Panel {
+    position: fixed;
+    top: 32px;
+    right: 0;
+    bottom: 0;
+    width: 320px;
+    background: var(--bg);
+    border-left: 1px solid var(--brd);
+    z-index: 51;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: SlideIn 0.28s var(--spring) both;
+}
+
+@keyframes SlideIn {
+    from { transform: translateX(14px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+}
+
+.Header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 13px 16px 11px;
+    border-bottom: 1px solid var(--brd);
+    flex-shrink: 0;
+}
+
+.HeaderLeft {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.Title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--txt3);
+}
+
+.PendingBadge {
+    font-size: 9.5px;
+    color: var(--acc);
+    background: var(--acc08);
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.HeaderActions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.IconBtn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color var(--tf), background var(--tf), transform var(--td) var(--spring);
+}
+
+.IconBtn:hover {
+    color: var(--txt2);
+    background: rgba(255,255,255,0.06);
+}
+
+.IconBtn:active {
+    transform: scale(0.88);
+    transition-duration: var(--td-fast);
+}
+
+.List {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0;
+}
+
+.Empty {
+    padding: 20px 16px;
+    font-size: 11px;
+    color: var(--txt3);
+    font-style: italic;
+    text-align: center;
+    line-height: 1.6;
+}
+
+.GroupHeader {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px 4px;
+}
+
+.GroupIcon {
+    display: flex;
+    align-items: center;
+    color: var(--txt3);
+    flex-shrink: 0;
+}
+
+.GroupLabel {
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    flex: 1;
+}
+
+.ReSyncBtn {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color var(--tf), background var(--tf), transform var(--td) var(--spring);
+}
+
+.ReSyncBtn:hover {
+    color: var(--txt2);
+    background: rgba(255,255,255,0.06);
+}
+
+.ReSyncBtn:active {
+    transform: rotate(180deg) scale(0.88);
+    transition-duration: var(--td-fast);
+}
+
+.ReSyncBtn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.GroupDivider {
+    height: 1px;
+    background: var(--brd);
+    margin: 6px 14px;
+}
+
+/* Note items */
+.Item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 14px;
+    transition: background var(--tf);
+}
+
+.Item:hover {
+    background: rgba(255,255,255,0.025);
+}
+
+.Item:hover .DeleteBtn {
+    opacity: 1;
+}
+
+.ItemDone .ItemText {
+    text-decoration: line-through;
+    color: var(--txt3);
+}
+
+.Checkbox {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1.5px solid var(--txt3);
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+    transition: border-color var(--tf), background var(--tf), transform var(--td) var(--spring);
+    color: var(--bg);
+}
+
+.Checkbox:hover {
+    border-color: var(--acc);
+    transform: scale(1.1);
+}
+
+.Checkbox:active {
+    transform: scale(0.9);
+    transition-duration: var(--td-fast);
+}
+
+.CheckboxDone {
+    background: var(--acc);
+    border-color: var(--acc);
+}
+
+.PriorityDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 5px;
+}
+
+.IssueNum {
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--txt3);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.ItemText {
+    flex: 1;
+    font-size: 11.5px;
+    color: var(--txt2);
+    line-height: 1.5;
+    word-break: break-word;
+    transition: color var(--tf);
+}
+
+.DeleteBtn {
+    opacity: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: color var(--tf), background var(--tf), opacity var(--tf), transform var(--td) var(--spring);
+}
+
+.DeleteBtn:hover {
+    color: #c97070;
+    background: rgba(201,112,112,0.1);
+}
+
+.DeleteBtn:active {
+    transform: scale(0.85);
+    transition-duration: var(--td-fast);
+}
+
+.GitHubSection {
+    border-top: 1px solid var(--brd);
+    flex-shrink: 0;
+}
+
+.GitHubToggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    padding: 9px 14px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--txt3);
+    font-size: 11px;
+    font-family: 'Syne', sans-serif;
+    text-align: left;
+    transition: color var(--tf), background var(--tf);
+}
+
+.GitHubToggle:hover {
+    color: var(--txt2);
+    background: rgba(255,255,255,0.03);
+}
+
+.GitHubToggleOpen {
+    color: var(--txt2);
+}
+
+.GitHubToggleIcon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.GitHubToggleLabel {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10.5px;
+}
+
+.GitHubChevron {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    transition: transform var(--td) var(--spring);
+}
+
+.GitHubChevronOpen {
+    transform: rotate(180deg);
+}
+
+.GitHubForm {
+    padding: 0 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    animation: FormIn 0.18s var(--smooth-out) both;
+}
+
+@keyframes FormIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.GitHubInput {
+    width: 100%;
+    background: var(--surf2);
+    border: 1px solid var(--brd);
+    border-radius: 6px;
+    color: var(--txt);
+    font-size: 11px;
+    font-family: 'Syne', sans-serif;
+    padding: 7px 9px;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color var(--tf), box-shadow var(--tf);
+}
+
+.GitHubInput::placeholder {
+    color: var(--txt3);
+}
+
+.GitHubInput:focus {
+    border-color: rgba(212,176,204,0.3);
+    box-shadow: 0 0 0 2px var(--acc04);
+}
+
+.SyncError {
+    font-size: 10.5px;
+    color: #c97070;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 4px 2px;
+    line-height: 1.4;
+}
+
+.GitHubActions {
+    display: flex;
+    gap: 7px;
+    justify-content: flex-end;
+}
+
+.ClearBtn {
+    padding: 6px 12px;
+    background: transparent;
+    color: var(--txt3);
+    border: 1px solid var(--brd);
+    border-radius: 6px;
+    font-size: 10.5px;
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+    transition: color var(--tf), border-color var(--tf), transform var(--td) var(--spring);
+}
+
+.ClearBtn:hover {
+    color: #c97070;
+    border-color: rgba(201,112,112,0.4);
+}
+
+.ClearBtn:active {
+    transform: scale(0.96);
+}
+
+.SyncBtn {
+    padding: 6px 14px;
+    background: var(--acc);
+    color: var(--bg);
+    border: none;
+    border-radius: 6px;
+    font-size: 10.5px;
+    font-weight: 600;
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+    transition: transform var(--td) var(--spring), box-shadow var(--td) var(--spring), opacity var(--tf);
+}
+
+.SyncBtn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(212,176,204,0.22);
+}
+
+.SyncBtn:active {
+    transform: scale(0.97);
+    transition-duration: var(--td-fast);
+}
+
+.SyncBtn:disabled {
+    opacity: 0.3;
+    cursor: default;
+    transform: none;
+    box-shadow: none;
+}
+
+.InputArea {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--brd);
+    flex-shrink: 0;
+}
+
+.Input {
+    width: 100%;
+    background: var(--surf2);
+    border: 1px solid var(--brd);
+    border-radius: 7px;
+    color: var(--txt);
+    font-size: 11.5px;
+    font-family: 'Syne', sans-serif;
+    padding: 8px 10px;
+    outline: none;
+    resize: none;
+    line-height: 1.5;
+    transition: border-color var(--tf), box-shadow var(--tf);
+    scrollbar-width: thin;
+}
+
+.Input::placeholder {
+    color: var(--txt3);
+}
+
+.Input:focus {
+    border-color: rgba(212,176,204,0.3);
+    box-shadow: 0 0 0 2px var(--acc04);
+}
+
+.AddBtn {
+    align-self: flex-end;
+    padding: 7px 18px;
+    background: var(--acc);
+    color: var(--bg);
+    border: none;
+    border-radius: 7px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+    transition: transform var(--td) var(--spring), box-shadow var(--td) var(--spring), opacity var(--tf);
+}
+
+.AddBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 16px rgba(212,176,204,0.26);
+}
+
+.AddBtn:active {
+    transform: scale(0.97);
+    transition-duration: var(--td-fast);
+}
+
+.AddBtn:disabled {
+    opacity: 0.3;
+    cursor: default;
+    transform: none;
+    box-shadow: none;
+}

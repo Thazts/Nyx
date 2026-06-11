@@ -148,13 +148,20 @@ pub struct UsageSummary {
     pub output_tokens: u64,
 }
 
-pub fn BuildSystemPrompt(workspace: Option<&str>, mode: &AgentMode, skill_blocks: &[crate::skills::SkillBlock], provider: &str) -> String {
+pub fn BuildSystemPrompt(
+    workspace: Option<&str>,
+    mode: &AgentMode,
+    skill_blocks: &[crate::skills::SkillBlock],
+    provider: &str,
+) -> String {
     let ctx = workspace
         .map(|w| format!("\n\nCurrent workspace: {w}"))
         .unwrap_or_default();
-    let stub_lines: String = crate::skills::ALL.iter().map(|s| {
-        format!("  - {} (id: \"{}\"): {}", s.label, s.id, s.when)
-    }).collect::<Vec<_>>().join("\n");
+    let stub_lines: String = crate::skills::ALL
+        .iter()
+        .map(|s| format!("  - {} (id: \"{}\"): {}", s.label, s.id, s.when))
+        .collect::<Vec<_>>()
+        .join("\n");
     let StubsSection = format!(
         "\n\nAVAILABLE SKILLS — Use read_skill(id) to load full content when a skill is relevant.\n{stub_lines}"
     );
@@ -565,23 +572,38 @@ mod dev_profiler {
                 .truncate(true)
                 .open(&path)
                 .expect("DEV: cannot create provider profile log");
-            Self { file: std::sync::Mutex::new(file) }
+            Self {
+                file: std::sync::Mutex::new(file),
+            }
         }
 
         #[cfg(not(debug_assertions))]
-        pub fn new() -> Self { Self {} }
+        pub fn new() -> Self {
+            Self {}
+        }
 
         #[cfg(debug_assertions)]
-        pub fn log_request(&self, iter: usize, provider: &str, model: &str,
-                           messages: &[serde_json::Value], system: &str,
-                           tools: &[serde_json::Value]) {
+        pub fn log_request(
+            &self,
+            iter: usize,
+            provider: &str,
+            model: &str,
+            messages: &[serde_json::Value],
+            system: &str,
+            tools: &[serde_json::Value],
+        ) {
             let Ok(mut f) = self.file.lock() else { return };
             let ts = fmt_ts();
             let msg_bytes: usize = messages.iter().map(|m| m.to_string().len()).sum();
             let _ = writeln!(f, "\n{}", "═".repeat(80));
             let _ = writeln!(f, "[DEV PROFILE] REQUEST #{iter} — {ts}");
             let _ = writeln!(f, "Provider: {provider} | Model: {model}");
-            let _ = writeln!(f, "Messages in context: {} | Total JSON: {} bytes", messages.len(), msg_bytes);
+            let _ = writeln!(
+                f,
+                "Messages in context: {} | Total JSON: {} bytes",
+                messages.len(),
+                msg_bytes
+            );
             let _ = writeln!(f, "Tools defined: {}", tools.len());
             let _ = writeln!(f, "{}", "─".repeat(80));
             let _ = writeln!(f, "SYSTEM PROMPT ({} chars):", system.len());
@@ -599,23 +621,37 @@ mod dev_profiler {
         }
 
         #[cfg(not(debug_assertions))]
-        pub fn log_request(&self, _iter: usize, _provider: &str, _model: &str,
-                           _messages: &[serde_json::Value], _system: &str,
-                           _tools: &[serde_json::Value]) {}
+        pub fn log_request(
+            &self,
+            _iter: usize,
+            _provider: &str,
+            _model: &str,
+            _messages: &[serde_json::Value],
+            _system: &str,
+            _tools: &[serde_json::Value],
+        ) {
+        }
 
         #[cfg(debug_assertions)]
-        pub fn log_response(&self, iter: usize, provider: &str,
-                            assistant_msg: &serde_json::Value,
-                            tool_calls: &[super::ToolCall],
-                            truncated: bool,
-                            usage: &super::UsageSummary) {
+        pub fn log_response(
+            &self,
+            iter: usize,
+            provider: &str,
+            assistant_msg: &serde_json::Value,
+            tool_calls: &[super::ToolCall],
+            truncated: bool,
+            usage: &super::UsageSummary,
+        ) {
             let Ok(mut f) = self.file.lock() else { return };
             let ts = fmt_ts();
             let _ = writeln!(f, "{}", "─".repeat(80));
             let _ = writeln!(f, "[DEV PROFILE] RESPONSE #{iter} — {ts}");
             let _ = writeln!(f, "Provider: {provider} | Truncated: {truncated}");
-            let _ = writeln!(f, "Usage — input_tokens: {} | output_tokens: {}",
-                             usage.input_tokens, usage.output_tokens);
+            let _ = writeln!(
+                f,
+                "Usage — input_tokens: {} | output_tokens: {}",
+                usage.input_tokens, usage.output_tokens
+            );
             if !tool_calls.is_empty() {
                 let _ = writeln!(f, "Tool calls ({}):", tool_calls.len());
                 for tc in tool_calls {
@@ -632,16 +668,25 @@ mod dev_profiler {
         }
 
         #[cfg(not(debug_assertions))]
-        pub fn log_response(&self, _iter: usize, _provider: &str,
-                            _assistant_msg: &serde_json::Value,
-                            _tool_calls: &[super::ToolCall],
-                            _truncated: bool,
-                            _usage: &super::UsageSummary) {}
+        pub fn log_response(
+            &self,
+            _iter: usize,
+            _provider: &str,
+            _assistant_msg: &serde_json::Value,
+            _tool_calls: &[super::ToolCall],
+            _truncated: bool,
+            _usage: &super::UsageSummary,
+        ) {
+        }
 
         #[cfg(debug_assertions)]
         pub fn log_rate_limit(&self, provider: &str) {
             let Ok(mut f) = self.file.lock() else { return };
-            let _ = writeln!(f, "[DEV PROFILE] RATE LIMIT — {} — provider: {provider}", fmt_ts());
+            let _ = writeln!(
+                f,
+                "[DEV PROFILE] RATE LIMIT — {} — provider: {provider}",
+                fmt_ts()
+            );
         }
 
         #[cfg(not(debug_assertions))]
@@ -651,7 +696,11 @@ mod dev_profiler {
         pub fn log_error(&self, iter: usize, provider: &str, error: &str) {
             let Ok(mut f) = self.file.lock() else { return };
             let _ = writeln!(f, "{}", "─".repeat(80));
-            let _ = writeln!(f, "[DEV PROFILE] ERROR #{iter} — {} — provider: {provider}", fmt_ts());
+            let _ = writeln!(
+                f,
+                "[DEV PROFILE] ERROR #{iter} — {} — provider: {provider}",
+                fmt_ts()
+            );
             let _ = writeln!(f, "{error}");
         }
 
@@ -672,33 +721,56 @@ mod dev_profiler {
         let mut year = 1970i32;
         let mut rem = days;
         loop {
-            let dy = if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 { 366 } else { 365 };
-            if rem < dy { break; }
+            let dy = if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
+                366
+            } else {
+                365
+            };
+            if rem < dy {
+                break;
+            }
             rem -= dy;
             year += 1;
         }
         let mo_days: [i64; 12] = if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
-            [31,29,31,30,31,30,31,31,30,31,30,31]
+            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
         } else {
-            [31,28,31,30,31,30,31,31,30,31,30,31]
+            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
         };
         let mut month = 1u32;
         for dm in &mo_days {
-            if rem < *dm { break; }
+            if rem < *dm {
+                break;
+            }
             rem -= *dm;
             month += 1;
         }
-        format!("{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z", day = rem + 1)
+        format!(
+            "{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z",
+            day = rem + 1
+        )
     }
 
     #[cfg(debug_assertions)]
     fn text_from_msg(msg: &serde_json::Value) -> String {
         let c = &msg["content"];
-        if let Some(s) = c.as_str() { return s.to_string(); }
+        if let Some(s) = c.as_str() {
+            return s.to_string();
+        }
         c.as_array()
-            .map(|blocks| blocks.iter()
-                .filter_map(|b| if b["type"].as_str() == Some("text") { b["text"].as_str() } else { None })
-                .collect::<Vec<_>>().join(""))
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter_map(|b| {
+                        if b["type"].as_str() == Some("text") {
+                            b["text"].as_str()
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
             .unwrap_or_default()
     }
 }
@@ -1814,7 +1886,12 @@ fn ExecWriteObsidian(input: &serde_json::Value, s: &ToolSettings) -> Result<Stri
 }
 
 pub fn ExecuteTool(tc: &ToolCall, s: &ToolSettings) -> Result<ToolOutcome, String> {
-    if tc.input.get("__truncated__").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if tc
+        .input
+        .get("__truncated__")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         let raw_len = tc.input["__raw_len__"].as_u64().unwrap_or(0);
         return Err(format!(
             "Tool '{}' input was cut off mid-stream — the model hit the output token limit \
@@ -1860,7 +1937,11 @@ pub fn ExecuteTool(tc: &ToolCall, s: &ToolSettings) -> Result<ToolOutcome, Strin
                 None => Err(format!(
                     "Unknown skill id '{}'. Available: {}",
                     id,
-                    crate::skills::ALL.iter().map(|s| s.id).collect::<Vec<_>>().join(", ")
+                    crate::skills::ALL
+                        .iter()
+                        .map(|s| s.id)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )),
             }
         }
@@ -1926,8 +2007,8 @@ pub async fn StreamAnthropicAgent(
 
             match v["type"].as_str() {
                 Some("message_start") => {
-                    Usage.input_tokens = v["message"]["usage"]["input_tokens"]
-                        .as_u64().unwrap_or(0);
+                    Usage.input_tokens =
+                        v["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0);
                 }
                 Some("content_block_start") => {
                     let block = &v["content_block"];
@@ -2050,9 +2131,13 @@ pub async fn StreamDeepseekAgent(
             let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) else {
                 continue;
             };
-            if v["choices"].as_array().map(|a| a.is_empty()).unwrap_or(false) {
+            if v["choices"]
+                .as_array()
+                .map(|a| a.is_empty())
+                .unwrap_or(false)
+            {
                 if let Some(u) = v.get("usage") {
-                    Usage.input_tokens  = u["prompt_tokens"].as_u64().unwrap_or(0);
+                    Usage.input_tokens = u["prompt_tokens"].as_u64().unwrap_or(0);
                     Usage.output_tokens = u["completion_tokens"].as_u64().unwrap_or(0);
                 }
                 continue;
@@ -2091,9 +2176,9 @@ pub async fn StreamDeepseekAgent(
     let mut RawTcs = Vec::new();
     for idx in idxs {
         let (id, name, args) = TcAccum.remove(&idx).unwrap();
-        let input = serde_json::from_str(&args).unwrap_or_else(|_| {
-            serde_json::json!({"__truncated__": true, "__raw_len__": args.len()})
-        });
+        let input = serde_json::from_str(&args).unwrap_or_else(
+            |_| serde_json::json!({"__truncated__": true, "__raw_len__": args.len()}),
+        );
         RawTcs.push(serde_json::json!({
             "id": &id, "type": "function",
             "function": {"name": &name, "arguments": &args},
@@ -2158,11 +2243,19 @@ pub async fn StreamOpenaiAgent(
                 Some(d) => d.to_string(),
                 None => continue,
             };
-            if data == "[DONE]" { continue; }
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) else { continue };
-            if v["choices"].as_array().map(|a| a.is_empty()).unwrap_or(false) {
+            if data == "[DONE]" {
+                continue;
+            }
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) else {
+                continue;
+            };
+            if v["choices"]
+                .as_array()
+                .map(|a| a.is_empty())
+                .unwrap_or(false)
+            {
                 if let Some(u) = v.get("usage") {
-                    Usage.input_tokens  = u["prompt_tokens"].as_u64().unwrap_or(0);
+                    Usage.input_tokens = u["prompt_tokens"].as_u64().unwrap_or(0);
                     Usage.output_tokens = u["completion_tokens"].as_u64().unwrap_or(0);
                 }
                 continue;
@@ -2175,11 +2268,13 @@ pub async fn StreamOpenaiAgent(
             if let Some(tcs) = delta["tool_calls"].as_array() {
                 for tc in tcs {
                     let idx = tc["index"].as_u64().unwrap_or(0) as usize;
-                    let e = TcAccum.entry(idx).or_insert_with(|| (
-                        tc["id"].as_str().unwrap_or("").to_string(),
-                        tc["function"]["name"].as_str().unwrap_or("").to_string(),
-                        String::new(),
-                    ));
+                    let e = TcAccum.entry(idx).or_insert_with(|| {
+                        (
+                            tc["id"].as_str().unwrap_or("").to_string(),
+                            tc["function"]["name"].as_str().unwrap_or("").to_string(),
+                            String::new(),
+                        )
+                    });
                     if let Some(args) = tc["function"]["arguments"].as_str() {
                         e.2.push_str(args);
                     }
@@ -2197,9 +2292,9 @@ pub async fn StreamOpenaiAgent(
     let mut RawTcs = Vec::new();
     for idx in idxs {
         let (id, name, args) = TcAccum.remove(&idx).unwrap();
-        let input = serde_json::from_str(&args).unwrap_or_else(|_| {
-            serde_json::json!({"__truncated__": true, "__raw_len__": args.len()})
-        });
+        let input = serde_json::from_str(&args).unwrap_or_else(
+            |_| serde_json::json!({"__truncated__": true, "__raw_len__": args.len()}),
+        );
         RawTcs.push(serde_json::json!({
             "id": &id, "type": "function",
             "function": {"name": &name, "arguments": &args},
@@ -2370,34 +2465,39 @@ mod tests {
 
     #[test]
     fn AgenticPromptIncludesCheckpointProtocol() {
-        let prompt = BuildSystemPrompt(Some("C:\\Work\\Game"), &AgentMode::Agentic, &[], "anthropic");
+        let prompt = BuildSystemPrompt(
+            Some("C:\\Work\\Game"),
+            &AgentMode::Agentic,
+            &[],
+            "anthropic",
+        );
         assert!(prompt.contains("AGENTIC MODE"));
         assert!(prompt.contains("create_memory"));
     }
 
     #[test]
     fn SystemPromptRequiresInspectionBeforeRiskyChanges() {
-        let prompt = BuildSystemPrompt(Some("C:\\Work\\Game"), &AgentMode::Supervised, &[], "anthropic");
-        assert!(prompt.contains("Do not assume the active model will reason deeply"));
-        assert!(prompt.contains("read the surrounding code first"));
-        assert!(prompt.contains("gather more evidence with tools"));
+        let prompt = BuildSystemPrompt(
+            Some("C:\\Work\\Game"),
+            &AgentMode::Supervised,
+            &[],
+            "anthropic",
+        );
+        assert!(prompt.contains("Don't assume deep reasoning by default"));
+        assert!(prompt.contains("read surrounding code first"));
+        assert!(prompt.contains("gather evidence with tools"));
         assert!(prompt.contains("find_files/list_tree"));
         assert!(prompt.contains("grep/search_files"));
         assert!(prompt.contains("Be cost-aware"));
-        assert!(prompt.contains("reading many files or whole large files is discouraged"));
+        assert!(prompt.contains("broad file or memory reads waste budget"));
         assert!(prompt.contains("Prefer search_memories over list_memories"));
-        assert!(prompt.contains("read only the matching memories needed for the task"));
-        assert!(prompt.contains("extra context can hurt the user's current budget"));
+        assert!(prompt.contains("Read only memories relevant to the current task"));
         assert!(prompt.contains("{topic}-{unix_timestamp}.md"));
-        assert!(
-            prompt.contains("a memory from a month ago may be stale for implementation details")
-        );
-        assert!(prompt.contains("can still be architecturally relevant"));
-        assert!(prompt.contains(
-            "Expand to more files only when the first targeted pass shows a concrete reason"
-        ));
-        assert!(prompt.contains("do not artificially fragment a change"));
-        assert!(prompt.contains("larger write/replace operations"));
+        assert!(prompt.contains("recent memories may have stale implementation details"));
+        assert!(prompt.contains("older ones can remain architecturally valid"));
+        assert!(prompt.contains("Expand scope only when the initial pass reveals a concrete reason"));
+        assert!(prompt.contains("don't fragment a change"));
+        assert!(prompt.contains("use larger operations when the task spans most of a file"));
         assert!(prompt.contains("[Nyx session action log]"));
     }
 
@@ -2828,9 +2928,13 @@ pub async fn RunAgent(
         profiler.log_request(iter + 1, provider, model, &messages, &system, &tools);
         let (ToolCalls, AssistantMsg, Truncated, Usage) = 'rate_limit_retry: loop {
             let StreamResult = match provider {
-                "anthropic" => StreamAnthropicAgent(ApiKey, model, &messages, &system, &tools, &window).await,
-                "openai"    => StreamOpenaiAgent(ApiKey, model, &messages, &system, &tools, &window).await,
-                _           => StreamDeepseekAgent(ApiKey, model, &messages, &system, &tools, &window).await,
+                "anthropic" => {
+                    StreamAnthropicAgent(ApiKey, model, &messages, &system, &tools, &window).await
+                }
+                "openai" => {
+                    StreamOpenaiAgent(ApiKey, model, &messages, &system, &tools, &window).await
+                }
+                _ => StreamDeepseekAgent(ApiKey, model, &messages, &system, &tools, &window).await,
             };
             match StreamResult {
                 Ok(r) => break 'rate_limit_retry r,
@@ -2838,26 +2942,43 @@ pub async fn RunAgent(
                     profiler.log_rate_limit(provider);
                     match rate_limit_auto_continue {
                         Some(false) => {
-                            let _ = window.emit("ai_activity", SimpleActivity("error", "Rate limited"));
-                            let _ = window.emit("ai_error", "Rate limit reached — auto-continue is disabled in settings.");
+                            let _ =
+                                window.emit("ai_activity", SimpleActivity("error", "Rate limited"));
+                            let _ = window.emit(
+                                "ai_error",
+                                "Rate limit reached — auto-continue is disabled in settings.",
+                            );
                             let _ = window.emit("ai_done", ());
                             return Ok(());
                         }
                         Some(true) => {
-                            let _ = window.emit("ai_rate_limit", serde_json::json!({
-                                "wait_seconds": 60, "auto_continue": true,
-                            }));
+                            let _ = window.emit(
+                                "ai_rate_limit",
+                                serde_json::json!({
+                                    "wait_seconds": 60, "auto_continue": true,
+                                }),
+                            );
                             for i in (0u64..=60).rev() {
-                                let _ = window.emit("ai_rate_limit_tick", serde_json::json!({ "seconds_remaining": i }));
-                                if i > 0 { tokio::time::sleep(tokio::time::Duration::from_secs(1)).await; }
+                                let _ = window.emit(
+                                    "ai_rate_limit_tick",
+                                    serde_json::json!({ "seconds_remaining": i }),
+                                );
+                                if i > 0 {
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                                }
                             }
                         }
                         None => {
                             let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
-                            { approval.lock().unwrap().pending_rate_limit = Some(tx); }
-                            let _ = window.emit("ai_rate_limit", serde_json::json!({
-                                "wait_seconds": 60, "auto_continue": false,
-                            }));
+                            {
+                                approval.lock().unwrap().pending_rate_limit = Some(tx);
+                            }
+                            let _ = window.emit(
+                                "ai_rate_limit",
+                                serde_json::json!({
+                                    "wait_seconds": 60, "auto_continue": false,
+                                }),
+                            );
                             let approved = rx.await.unwrap_or(false);
                             if !approved {
                                 let _ = window.emit("ai_activity", SimpleActivity("done", "Done"));
@@ -2865,8 +2986,13 @@ pub async fn RunAgent(
                                 return Ok(());
                             }
                             for i in (0u64..=60).rev() {
-                                let _ = window.emit("ai_rate_limit_tick", serde_json::json!({ "seconds_remaining": i }));
-                                if i > 0 { tokio::time::sleep(tokio::time::Duration::from_secs(1)).await; }
+                                let _ = window.emit(
+                                    "ai_rate_limit_tick",
+                                    serde_json::json!({ "seconds_remaining": i }),
+                                );
+                                if i > 0 {
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                                }
                             }
                         }
                     }
@@ -2877,7 +3003,14 @@ pub async fn RunAgent(
                 }
             }
         };
-        profiler.log_response(iter + 1, provider, &AssistantMsg, &ToolCalls, Truncated, &Usage);
+        profiler.log_response(
+            iter + 1,
+            provider,
+            &AssistantMsg,
+            &ToolCalls,
+            Truncated,
+            &Usage,
+        );
 
         if ToolCalls.is_empty() && Truncated && TextContinuations < 5 {
             TextContinuations += 1;
@@ -3001,7 +3134,11 @@ pub async fn RunAgent(
             let (display, history_text, change, is_err) = match outcome {
                 Ok(outcome) => {
                     let full: String = outcome.display.chars().take(8000).collect();
-                    let hist = if tc.name == "read_skill" { full.clone() } else { TrimForHistory(&full) };
+                    let hist = if tc.name == "read_skill" {
+                        full.clone()
+                    } else {
+                        TrimForHistory(&full)
+                    };
                     (full, hist, outcome.change, false)
                 }
                 Err(error) => {

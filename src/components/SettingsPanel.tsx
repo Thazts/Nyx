@@ -7,6 +7,7 @@ interface Settings {
     LineHeight:     number;
     Accent:         string;
     ClassicWelcome: boolean;
+    ShowTaskHint:   boolean;
 }
 
 const Defaults: Settings = {
@@ -14,6 +15,7 @@ const Defaults: Settings = {
     LineHeight:     1.78,
     Accent:         "#D4B0CC",
     ClassicWelcome: false,
+    ShowTaskHint:   true,
 };
 
 const FontSizes   = [10, 11, 11.5, 12, 13, 14];
@@ -149,10 +151,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
         window.dispatchEvent(new CustomEvent("nyx-settings-changed"));
     }, [S]);
 
-    const SetFontSize       = useCallback((V: number)  => SetS(Prev => ({ ...Prev, FontSize: V })), []);
-    const SetLineHeight     = useCallback((V: number)  => SetS(Prev => ({ ...Prev, LineHeight: V })), []);
-    const SetAccent         = useCallback((V: string)  => SetS(Prev => ({ ...Prev, Accent: V })), []);
+    const SetFontSize          = useCallback((V: number) => SetS(Prev => ({ ...Prev, FontSize: V })), []);
+    const SetLineHeight        = useCallback((V: number) => SetS(Prev => ({ ...Prev, LineHeight: V })), []);
+    const SetAccent            = useCallback((V: string) => SetS(Prev => ({ ...Prev, Accent: V })), []);
     const ToggleClassicWelcome = useCallback(() => SetS(Prev => ({ ...Prev, ClassicWelcome: !Prev.ClassicWelcome })), []);
+    const ToggleShowTaskHint   = useCallback(() => SetS(Prev => ({ ...Prev, ShowTaskHint: !Prev.ShowTaskHint })), []);
 
     const HandleReset = useCallback(() => {
         SetS({ ...Defaults });
@@ -240,6 +243,19 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
                             <button
                                 className={`${styles.Toggle} ${S.ClassicWelcome ? styles.ToggleOn : ""}`}
                                 onClick={ToggleClassicWelcome}
+                            >
+                                <div className={styles.ToggleThumb} />
+                            </button>
+                        </div>
+
+                        <div className={styles.Row} style={{ marginTop: 16 }}>
+                            <div>
+                                <div className={styles.Label}>Show task hint in title bar</div>
+                                <div className={styles.Hint}>Display the first pending task at the top of the window</div>
+                            </div>
+                            <button
+                                className={`${styles.Toggle} ${S.ShowTaskHint ? styles.ToggleOn : ""}`}
+                                onClick={ToggleShowTaskHint}
                             >
                                 <div className={styles.ToggleThumb} />
                             </button>

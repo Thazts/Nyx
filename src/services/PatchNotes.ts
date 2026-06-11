@@ -18,14 +18,30 @@ export interface RoadmapItem {
 }
 
 export const ROADMAP: RoadmapItem[] = [
-    { Tag: "active",   Text: "Better viewport support for Unity and Unreal engines" },
-    { Tag: "active",   Text: "Bug fixes across Unity and Unreal viewport integration" },
-    { Tag: "active",   Text: "Physics parity, making each engine behave closer to native" },
-    { Tag: "active",   Text: "Improved gizmo and object editing tools" },
+    { Tag: "active",   Text: "Bug fixes in the new renderer surface" },
+    { Tag: "active",   Text: "Updating and expanding the renderer and scene APIs" },
+    { Tag: "active",   Text: "Fixing an FPS regression in the viewport" },
     { Tag: "longterm", Text: "Godot engine integration" },
 ];
 
 export const PATCH_NOTES: PatchEntry[] = [
+    {
+        Version: "0.3.0",
+        Date: "11/6/2026",
+        Unix: 1749600000,
+        Major: true,
+        Focus: "NEW",
+        Changes: [
+            { Tag: "new",    Text: "Notes panel with task tracking and optional GitHub Issues sync" },
+            { Tag: "new",    Text: "Search and replace across the editor and sidebar" },
+            { Tag: "new",    Text: "3D object file support — drag-drop or open .obj, .fbx, .gltf, .glb, and more" },
+            { Tag: "new",    Text: "Complex object loading with multi-mesh, material, and hierarchy support" },
+            { Tag: "new",    Text: "Ask rate limit timer keeps agentic AI flows alive during API cooldowns" },
+            { Tag: "new",    Text: "Completion engine with multi-language support" },
+            { Tag: "change", Text: "Refined AI features with improved context and response handling" },
+            { Tag: "change", Text: "Refined animation system with smoother and more consistent transitions" },
+        ],
+    },
     {
         Version: "0.2.2",
         Date: "8/6/2026",

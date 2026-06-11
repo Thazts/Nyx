@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from "react";
 import styles from "../styles/ActivityBar.module.css";
-import { UILib, UseView } from "../ui/UILib";
+import { UILib, UsePanel, UseView } from "../ui/UILib";
 
 const ExplorerIcon = () => (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -42,6 +42,13 @@ const SceneIcon = () => (
     </svg>
 );
 
+const NotesIcon = () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="2" width="12" height="12" rx="2"/>
+        <path d="M5 6h6M5 8.5h6M5 11h4"/>
+    </svg>
+);
+
 const SettingsIcon = () => (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="8" cy="8" r="2"/>
@@ -57,8 +64,13 @@ const Views = [
     { Id: "scene",          Label: "Scene",          Icon: SceneIcon },
 ];
 
-export const ActivityBar: React.FC = () => {
+interface ActivityBarProps {
+    HasWorkspace?: boolean;
+}
+
+export const ActivityBar: React.FC<ActivityBarProps> = ({ HasWorkspace = false }) => {
     const ActiveView = UseView();
+    const IsNotesOpen = UsePanel("Notes");
     const [ClickedId, SetClickedId] = useState<string | null>(null);
     const [Width, SetWidth] = useState(44);
     const IsResizing = useRef(false);
@@ -102,6 +114,12 @@ export const ActivityBar: React.FC = () => {
         setTimeout(() => SetClickedId(null), 300);
     }, []);
 
+    const HandleNotesClick = useCallback(() => {
+        SetClickedId("notes");
+        UILib.Toggle("Notes");
+        setTimeout(() => SetClickedId(null), 300);
+    }, []);
+
     return (
         <div
             className={`${styles.Container} ${ShowLabels ? styles.Wide : ""}`}
@@ -120,6 +138,18 @@ export const ActivityBar: React.FC = () => {
                     {ShowLabels && <span className={styles.Label}>{View.Label}</span>}
                 </button>
             ))}
+            {HasWorkspace && (
+                <button
+                    className={`${styles.Item} ${IsNotesOpen ? styles.Active : ""} ${ClickedId === "notes" ? styles.Clicked : ""}`}
+                    onClick={HandleNotesClick}
+                    title={ShowLabels ? undefined : "Notes"}
+                >
+                    <span className={styles.Icon}>
+                        <NotesIcon />
+                    </span>
+                    {ShowLabels && <span className={styles.Label}>Notes</span>}
+                </button>
+            )}
             <div className={styles.Spacer} />
             <button className={styles.Item} onClick={() => UILib.Toggle("Settings")} title={ShowLabels ? undefined : "Settings"}>
                 <span className={styles.Icon}>

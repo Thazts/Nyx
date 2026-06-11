@@ -15,6 +15,16 @@
       "shell": {
         "all": false,
         "open": true
+      },
+      "window": {
+        "all": false,
+        "close": true,
+        "minimize": true,
+        "maximize": true,
+        "unmaximize": true,
+        "startDragging": true,
+        "setSize": true,
+        "setPosition": true
       }
     },
     "bundle": {
@@ -47,6 +57,7 @@
       {
         "fullscreen": false,
         "resizable": true,
+        "decorations": false,
         "title": "Nyx",
         "width": 960,
         "height": 592

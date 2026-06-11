@@ -16,11 +16,14 @@ export const SceneService = {
         });
     },
 
-    async RunLiveScene(Config: { Path: string; Profile: string; Elapsed: number }): Promise<RunSceneResult> {
-        return invoke<RunSceneResult>("run_live_scene", {
+    async StartLiveScene(Config: { Path: string; Profile: string }): Promise<void> {
+        return invoke("start_live_scene", {
             path:    Config.Path,
             profile: Config.Profile,
-            elapsed: Config.Elapsed,
         });
+    },
+
+    async StopLiveScene(Config: { Path?: string } = {}): Promise<void> {
+        return invoke("stop_live_scene", { path: Config.Path ?? null });
     },
 };
