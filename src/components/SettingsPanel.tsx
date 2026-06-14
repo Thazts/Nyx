@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import styles from "../styles/SettingsPanel.module.css";
 import { AiMode, AiService, RateLimitMode } from "../services/AiService";
+import { UsePanelDismiss } from "../ui/UILib";
 
 interface Settings {
     FontSize:       number;
@@ -70,17 +71,14 @@ export function GetClassicWelcome(): boolean {
     return LoadSettings().ClassicWelcome ?? false;
 }
 
-interface SettingsPanelProps {
-    OnClose: () => void;
-}
-
 const CloseIcon = () => (
     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
         <path d="M3 3l10 10M13 3L3 13"/>
     </svg>
 );
 
-export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
+export const SettingsPanel: React.FC = () => {
+    const { Closing, Dismiss, HandleAnimationEnd } = UsePanelDismiss("Settings");
     const [S, SetS] = useState<Settings>(LoadSettings);
 
     const [AnthropicKeySet,   SetAnthropicKeySet]   = useState(false);
@@ -166,11 +164,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
 
     return (
         <>
-            <div className={styles.Backdrop} onClick={OnClose} />
-            <div className={styles.Panel}>
+            <div className={`${styles.Backdrop} ${Closing ? styles.Closing : ""}`} onClick={Dismiss} />
+            <div className={`${styles.Panel} ${Closing ? styles.Closing : ""}`} onAnimationEnd={HandleAnimationEnd}>
                 <div className={styles.Header}>
                     <span className={styles.Title}>Settings</span>
-                    <button className={styles.CloseBtn} onClick={OnClose} title="Close">
+                    <button className={styles.CloseBtn} onClick={Dismiss} title="Close">
                         <CloseIcon />
                     </button>
                 </div>
@@ -306,8 +304,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
                                 onClick={HandleModeToggle}
                                 title={
                                     AiModeValue === "supervised" ? "Supervised - writes/commands need approval" :
-                                    AiModeValue === "autonomous" ? "Autonomous - AI executes everything" :
-                                    "Agentic - sliced autonomous execution with memory checkpoints"
+                                    AiModeValue === "autonomous" ? "Autonomous - AI writes directly; shell commands still need approval" :
+                                    "Agentic - sliced autonomous work; shell commands still need approval"
                                 }
                             >
                                 <div className={styles.ToggleThumb} />
@@ -315,8 +313,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ OnClose }) => {
                         </div>
                         <div className={styles.Hint} style={{ marginBottom: 12 }}>
                             {AiModeValue === "supervised" ? "Supervised - file writes & commands need approval" :
-                             AiModeValue === "autonomous" ? "Autonomous - AI executes all tools without asking" :
-                             "Agentic - plans in short slices and writes memory checkpoints"}
+                             AiModeValue === "autonomous" ? "Autonomous - file tools run directly; shell commands still ask" :
+                             "Agentic - sliced autonomous work; shell commands still ask"}
                         </div>
 
                         <div className={styles.Row} style={{ marginTop: 16, alignItems: "flex-start", flexDirection: "column", gap: 6 }}>

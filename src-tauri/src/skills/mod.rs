@@ -27,40 +27,6 @@ fn ParseClassificationOwned(content: &str) -> (u8, String) {
     (3, content.to_string())
 }
 
-fn ScanForInjection(content: &str) -> Option<&'static str> {
-    let lower = content.to_lowercase();
-    let triggers: &[(&str, &'static str)] = &[
-        ("ignore previous instructions", "instruction override"),
-        ("ignore the above instructions", "instruction override"),
-        ("ignore all previous", "instruction override"),
-        ("disregard the above", "instruction override"),
-        ("disregard all previous", "instruction override"),
-        ("forget everything above", "instruction override"),
-        ("forget all previous instructions", "instruction override"),
-        ("override your instructions", "instruction override"),
-        ("override this system prompt", "instruction override"),
-        ("supersede this system prompt", "instruction override"),
-        ("you are now", "identity override"),
-        ("your new role is", "identity override"),
-        ("your true identity", "identity override"),
-        ("pretend you are", "identity override"),
-        ("act as if you are", "identity override"),
-        ("new persona:", "identity override"),
-        ("<system>", "prompt injection marker"),
-        ("[system]", "prompt injection marker"),
-        ("[system prompt]", "prompt injection marker"),
-        ("<|im_start|>", "prompt injection marker"),
-        ("<|endoftext|>", "prompt injection marker"),
-        ("### instruction", "prompt injection marker"),
-    ];
-    for (trigger, category) in triggers {
-        if lower.contains(trigger) {
-            return Some(category);
-        }
-    }
-    None
-}
-
 fn SkillsDir() -> std::path::PathBuf {
     std::env::current_exe()
         .ok()
@@ -108,7 +74,21 @@ pub static VIEWPORT_MANUAL: Skill = Skill {
     content: include_str!("../../skills/ViewportManual.md"),
 };
 
-pub static ALL: &[&Skill] = &[&FENGSHUI_PROTOCOL, &SELF_HELP, &LUA_LUAU, &VIEWPORT_MANUAL];
+pub static SECURITY_REVIEW: Skill = Skill {
+    id:      "security_review",
+    label:   "SecurityReview",
+    domain:  "security review — adversarial what-if analysis of code, designs, and changes",
+    when:    "reviewing code, a design, or a change for security: threat modeling, finding vulnerabilities, auditing trust boundaries, or hardening untrusted-input paths",
+    content: include_str!("../../skills/SecurityReview.md"),
+};
+
+pub static ALL: &[&Skill] = &[
+    &FENGSHUI_PROTOCOL,
+    &SELF_HELP,
+    &LUA_LUAU,
+    &VIEWPORT_MANUAL,
+    &SECURITY_REVIEW,
+];
 
 pub fn Resolve(ids: &[String]) -> ResolveResult {
     let mut loaded = Vec::new();
@@ -119,7 +99,7 @@ pub fn Resolve(ids: &[String]) -> ResolveResult {
             Some(skill) => {
                 let raw = LoadContent(skill);
                 let (classification, content) = ParseClassificationOwned(&raw);
-                match ScanForInjection(&content) {
+                match crate::security::ScanForInjection(&content) {
                     None => loaded.push(SkillBlock {
                         label: skill.label,
                         domain: skill.domain,

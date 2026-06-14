@@ -49,6 +49,9 @@
     margin-top: 2px;
     font-family: 'JetBrains Mono', monospace;
     line-height: 1.5;
+    min-width: 36px;
+    box-sizing: border-box;
+    text-align: center;
 }
 
 .Tag_active {

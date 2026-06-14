@@ -1,10 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import styles from "../styles/NotesPanel.module.css";
 import { NotesStore, UseNotes } from "../services/NotesStore";
-
-interface NotesPanelProps {
-    OnClose: () => void;
-}
+import { UsePanelDismiss } from "../ui/UILib";
 
 const TrashIcon = () => (
     <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -53,7 +50,8 @@ const PriorityDot = ({ Level }: { Level: 0 | 1 | 2 }) => (
     />
 );
 
-export const NotesPanel: React.FC<NotesPanelProps> = ({ OnClose }) => {
+export const NotesPanel: React.FC = () => {
+    const { Closing, Dismiss, HandleAnimationEnd } = UsePanelDismiss("Notes");
     const Notes = UseNotes();
     const [Input,      SetInput]      = useState("");
     const [GhOpen,     SetGhOpen]     = useState(false);
@@ -117,8 +115,8 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({ OnClose }) => {
 
     return (
         <>
-            <div className={styles.Backdrop} onClick={OnClose} />
-            <div className={styles.Panel}>
+            <div className={`${styles.Backdrop} ${Closing ? styles.Closing : ""}`} onClick={Dismiss} />
+            <div className={`${styles.Panel} ${Closing ? styles.Closing : ""}`} onAnimationEnd={HandleAnimationEnd}>
                 <div className={styles.Header}>
                     <div className={styles.HeaderLeft}>
                         <span className={styles.Title}>Notes</span>
@@ -127,7 +125,7 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({ OnClose }) => {
                         )}
                     </div>
                     <div className={styles.HeaderActions}>
-                        <button className={styles.IconBtn} onClick={OnClose} title="Close">
+                        <button className={styles.IconBtn} onClick={Dismiss} title="Close">
                             <CloseIcon />
                         </button>
                     </div>

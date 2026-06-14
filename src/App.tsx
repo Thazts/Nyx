@@ -27,7 +27,7 @@ import { NotesPanel } from "./components/NotesPanel";
 import { ResizeFrame } from "./components/ResizeFrame";
 import { MenuService } from "./services/MenuService";
 import { UILib, UsePanel } from "./ui/UILib";
-import { DetectLanguage } from "./services/Tokenizer";
+import { GetFileLanguageLabel } from "./services/LanguageMeta";
 import { useStateKey } from "./state/useStateKey";
 import "./styles/global.css";
 
@@ -1059,18 +1059,9 @@ export const App: React.FC = () => {
         { Id: "workspace", Label: "Open Workspace Folder",   Action: HandleSelectWorkspace },
     ], [HandleSaveAll, HandleSelectWorkspace]);
 
-    const LangLabels: Record<string, string> = {
-        luau: "Luau", typescript: "TypeScript", javascript: "JavaScript",
-        rust: "Rust", css: "CSS", json: "JSON",
-        python: "Python", html: "HTML", toml: "TOML",
-        wgsl: "WGSL", glsl: "GLSL", markdown: "Markdown",
-        yaml: "YAML", c: "C", cpp: "C++", go: "Go",
-        bash: "Bash", sql: "SQL", csharp: "C#", java: "Java",
-        xml: "XML", plain: "Plain Text",
-    };
     const ActiveFileName = ActiveFile?.split(/[\\/]/).pop() ?? "";
     const DisplayLanguage = ActiveFile && !ActiveFile.startsWith("viewport:")
-        ? (LangLabels[DetectLanguage(ActiveFileName)] ?? "Plain Text")
+        ? GetFileLanguageLabel(ActiveFileName)
         : "—";
     const UnsavedCount = OpenTabs.filter(T =>
         T.Path === ActiveFile
@@ -1086,16 +1077,17 @@ export const App: React.FC = () => {
         SetIsLoading(true);
         StateService.Set({ Key: "AppStatus", Value: "loading" });
         try {
-            const Tree = await BuildFileTree(FolderPath);
+            const OpenedPath = await FileService.OpenWorkspace({ Path: FolderPath });
+            const Tree = await BuildFileTree(OpenedPath);
             SetFileTree(Tree);
-            SetWorkspacePath(FolderPath);
+            SetWorkspacePath(OpenedPath);
             StateService.Set({ Key: "AiChangedFiles", Value: [] });
-            StateService.Set({ Key: "WorkspacePath", Value: FolderPath });
+            StateService.Set({ Key: "WorkspacePath", Value: OpenedPath });
             StateService.Set({ Key: "FileTree", Value: Tree });
             const SubFolders = CollectAllFolderPaths(Tree[0]?.Children ?? []);
             SetCollapsedFolders(new Set(SubFolders));
-            SetTerminalOutput(Prev => [...Prev, `Workspace: ${FolderPath}`]);
-            SetRecentPaths(AddRecentWorkspace(FolderPath));
+            SetTerminalOutput(Prev => [...Prev, `Workspace: ${OpenedPath}`]);
+            SetRecentPaths(AddRecentWorkspace(OpenedPath));
             SetAppReady(true);
         } catch {
             const Next = GetRecentWorkspaces().filter(P => P !== FolderPath);
@@ -1212,13 +1204,10 @@ export const App: React.FC = () => {
                 <SourceControl
                     WorkspacePath={WorkspacePath}
                     Branch={GitBranch}
-                    OnClose={() => UILib.Hide("SourceControl")}
                 />
             )}
             {IsSettingsOpen && (
-                <SettingsPanel
-                    OnClose={() => UILib.Hide("Settings")}
-                />
+                <SettingsPanel />
             )}
             {IsCommandPaletteOpen && (
                 <CommandPalette
@@ -1231,9 +1220,7 @@ export const App: React.FC = () => {
                 />
             )}
             {IsNotesOpen && (
-                <NotesPanel
-                    OnClose={() => UILib.Hide("Notes")}
-                />
+                <NotesPanel />
             )}
             {DevMenuOpen && (
                 <DevMenu

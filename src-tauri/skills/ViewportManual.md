@@ -96,9 +96,30 @@ Part.Size     = Part.Size * 2
 Part:Destroy()
 ```
 
+#### Supported API surface
+
+The Luau runtime is a broad Roblox-compatible emulation layer. Supported features include:
+
+- **Instance hierarchy** — `Instance.new(class[, parent])`, real `Parent`/child tree, `GetChildren`, `GetDescendants`, `FindFirstChild(name[, recursive])`, `FindFirstChildOfClass`, `FindFirstChildWhichIsA`, `FindFirstAncestor*`, `WaitForChild`, `Clone`, `Destroy`, `ClearAllChildren`, `IsA` (with class inheritance), `GetFullName`, child-by-name indexing (`workspace.Baseplate`).
+- **Signals** — `Changed`, `ChildAdded`/`ChildRemoved`, `DescendantAdded`, `AncestryChanged`, `GetPropertyChangedSignal`, `GetAttributeChangedSignal`, each with `Connect`/`Once`/`Disconnect`.
+- **Attributes & tags** — `GetAttribute`/`SetAttribute`/`GetAttributes`, `AddTag`/`HasTag`/`RemoveTag`/`GetTags`.
+- **Datatypes** — `Vector3` (Magnitude, Unit, Dot, Cross, Lerp, …), `Vector2`, `CFrame` (real 3×3 matrix: `LookVector`/`RightVector`/`UpVector`, `Angles`, `lookAt`, `ToWorldSpace`/`ToObjectSpace`, `Inverse`, `Lerp`, `*` composition), `Color3` (HSV/hex/Lerp), `UDim`/`UDim2`, `Rect`, `NumberRange`, `NumberSequence`, `ColorSequence`, `Region3`, `Ray`, `BrickColor`, `PhysicalProperties`, and real `Enum` items (`Enum.Material.Plastic.Name`/`.Value`).
+- **Services** — `game:GetService(...)` for `Workspace`, `Lighting`, `RunService` (Heartbeat/RenderStepped feed the live ticker), `TweenService` (full easing), `HttpService` (`JSONEncode`/`JSONDecode`/`GenerateGUID`), `CollectionService`, `Debris`, `Players`, plus generic stubs for `ReplicatedStorage`, `UserInputService`, and ~25 others.
+- **Libraries** — `task` (`wait`/`spawn`/`delay`/`defer`), globals `wait`/`spawn`/`delay`/`tick`/`time`/`warn`/`typeof`, `Random`, and Luau polyfills (`math.clamp`/`sign`/`round`, `table.find`/`create`/`clone`, `string.split`).
+
+Nyx-custom convenience methods also remain: `workspace:SetGravity(n)`, `workspace:SetSkybox(Color3)`, `Lighting:AddDirectionalLight{}`, `Lighting:AddPointLight{}`, `Camera:SetPosition(eye, lookAt)`, and `Part:ApplyImpulse`/`ApplyForce`.
+
+#### Limitations
+
+- The underlying VM is **Lua 5.4 (mlua), not Luau**. Luau-only *syntax* — type annotations (`local x: number`), `continue`, and compound assignment (`+=`/`-=`) — cannot be parsed and will raise a syntax error. This is a VM limitation, not a missing API. Scripts using plain Lua-compatible syntax run fully.
+- Only `Part`/`BasePart`, lights, `Sky`, camera, gravity, and skybox produce **visual** output. Other classes (GUI objects, sounds, humanoids, constraints, value objects, …) exist as fully scriptable instances but do not render.
+- The runner re-executes the whole script each tick, so `wait`/`task.wait` do not truly yield — they return immediately. Use `RunService.Heartbeat` + `_NYX_LIVE_TIME` (or `os.clock()`) for time-based animation.
+
 ### C# (Unity target)
 
 Objects are created using a Unity-shaped `GameObject` API. The shim supports primitive creation, `Transform` manipulation, `Rigidbody` physics, `Renderer.material.color`, `RenderSettings`, lights, `Camera`, `Object.Destroy`, and `MonoBehaviour` helper methods. Both PascalCase fields used by Nyx presets and lower-case Unity-style aliases are supported.
+
+When the .NET SDK is available, Nyx compiles the C# file against the embedded Unity shim and executes it to collect scene commands. Top-level snippets run directly. Class-based scenes are also supported: Nyx instantiates scene classes and invokes common Unity-style entry methods such as `Awake`, `Start`, `BuildScene`, `BuildNyxScene`, `Run`, and live-tick `FixedUpdate`/`Update`.
 
 ```csharp
 // Create a cube
@@ -130,6 +151,8 @@ Object.Destroy(Cube);
 ### C++ (Unreal target)
 
 Objects are spawned as actors using an Unreal-shaped `UWorld` API. The shim supports `AActor`, `AStaticMeshActor`, `UStaticMeshComponent`, primitive component physics methods, `SetActorLocation`, `SetActorRotation`, `SetActorScale3D`, world gravity, skybox, camera, directional and point lights, and actor destruction through either `AActor::Destroy()` or `UWorld::DestroyActor`.
+
+When a C++ compiler is available, Nyx compiles the file with the embedded `NyxUnrealRuntime.h` shim and a generated `main()`. Scene builder functions named `BuildNyxUnrealObjectTest`, `BuildNyxUnrealScene`, `BuildNyxScene`, `BuildScene`, or `CreateScene` are called with the generated `UWorld&`.
 
 ```cpp
 // Spawn a static mesh actor
@@ -166,5 +189,5 @@ Unreal coordinates are converted into the Nyx scene with Unreal's Z-up conventio
 - The viewport only activates for supported language files (`.luau`, `.lua`, `.cs`, `.cpp`, `.h`). Other file types will not show the Viewport button.
 - Engine mode is determined at open time from the file's language. It does not change while the viewport is open.
 - Runtime scripts execute inside the viewport's sandboxed environment. They cannot access the host filesystem or Nyx's internal state directly.
-- C# and C++ viewport files currently load the `@nyx-scene` JSON block for execution. The Unity and Unreal shims define the supported API shape and generated-command contract, but Nyx does not yet compile and execute arbitrary C# or C++ user code in-process.
+- C# and C++ viewport files compile and execute through local external toolchains when available (`dotnet` for C#, `g++`/`clang++`/`cl` for C++). If the required compiler is missing or compilation fails, Nyx falls back to an embedded `@nyx-scene` JSON block when the file provides one.
 - The scene resets when the viewport is closed and reopened.

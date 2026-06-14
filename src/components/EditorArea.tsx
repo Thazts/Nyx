@@ -10,9 +10,13 @@ import { GetClassicWelcome } from "./SettingsPanel";
 import { PatchNotesList } from "./PatchNotesList";
 import { RoadmapList } from "./RoadmapList";
 import { UpdateLogPanel } from "./UpdateLogPanel";
+import { GetFileLanguageColor } from "../services/LanguageMeta";
 
 const OVERSCAN        = 80;
 const FUZZY_THRESHOLD = 3_000;
+
+const TabColorStyle = (Name: string): React.CSSProperties =>
+    ({ "--tab-color": GetFileLanguageColor(Name) } as React.CSSProperties);
 
 const LangComment: Record<string, string> = {
     luau:       '--',
@@ -33,6 +37,37 @@ const LangComment: Record<string, string> = {
     csharp:     '//',
     java:       '//',
     sql:        '--',
+    kotlin:     '//',
+    swift:      '//',
+    dart:       '//',
+    scala:      '//',
+    hlsl:       '//',
+    zig:        '//',
+    ruby:       '#',
+    php:        '//',
+    elixir:     '#',
+    haskell:    '--',
+    graphql:    '#',
+    dockerfile: '#',
+    makefile:   '#',
+    nim:        '#',
+    vlang:      '//',
+    red:        ';',
+    j:          'NB.',
+    apl:        '⍝',
+    factor:     '!',
+    idris:      '--',
+    fsharp:     '//',
+    erlang:     '%',
+    racket:     ';',
+    scheme:     ';',
+    lisp:       ';',
+    fortran:    '!',
+    cobol:      '*>',
+    ada:        '--',
+    crystal:    '#',
+    julia:      '#',
+    lolcode:    'BTW',
 };
 
 const LangClosers: Record<string, string[]> = {
@@ -41,7 +76,68 @@ const LangClosers: Record<string, string[]> = {
     python:     [], toml:        [], yaml:    [], bash:     [], wgsl:     [],
     glsl:       [], c:           [], cpp:     [], go:       [], csharp:   [],
     java:       [], sql:         [], markdown:[], xml:      [], html:     [],
+    ruby:       ['end'], elixir:  ['end'],
+    crystal:    ['end'], julia:   ['end'],
 };
+
+interface BlockRule {
+    Open:  RegExp;
+    Close: string;
+}
+
+const LangBlocks: Record<string, BlockRule[]> = {
+    luau: [
+        { Open: /^if\b.*\bthen$/,        Close: 'end' },
+        { Open: /^for\b.*\bdo$/,         Close: 'end' },
+        { Open: /^while\b.*\bdo$/,       Close: 'end' },
+        { Open: /^do$/,                  Close: 'end' },
+        { Open: /\bfunction\b.*\)$/,     Close: 'end' },
+        { Open: /^repeat$/,              Close: 'until' },
+    ],
+    ruby: [
+        { Open: /^(def|class|module|case|begin)\b/, Close: 'end' },
+        { Open: /^(if|unless|while|until|for)\b/,    Close: 'end' },
+        { Open: /\bdo(\s*\|[^|]*\|)?$/,              Close: 'end' },
+    ],
+    crystal: [
+        { Open: /^(def|class|module|struct|enum|case|begin|lib|macro)\b/, Close: 'end' },
+        { Open: /^(if|unless|while|until|for)\b/,    Close: 'end' },
+        { Open: /\bdo(\s*\|[^|]*\|)?$/,              Close: 'end' },
+    ],
+    julia: [
+        { Open: /^(function|macro|if|for|while|begin|let|quote|try|module)\b/, Close: 'end' },
+        { Open: /^(mutable\s+)?struct\b/,            Close: 'end' },
+        { Open: /\bdo(\s+[A-Za-z0-9_, ]*)?$/,        Close: 'end' },
+    ],
+    elixir: [
+        { Open: /\bdo$/,                             Close: 'end' },
+    ],
+    bash: [
+        { Open: /\bthen$/,                           Close: 'fi' },
+        { Open: /\bdo$/,                             Close: 'done' },
+        { Open: /^case\b.*\bin$/,                    Close: 'esac' },
+    ],
+};
+
+function ShouldAutoClose(Text: string, From: number, Indent: string, Closer: string): boolean {
+    const CurNewline = Text.indexOf('\n', From);
+    if (CurNewline === -1) return true;
+    let P = CurNewline + 1;
+    while (P <= Text.length) {
+        const LineEnd = Text.indexOf('\n', P);
+        const Stop = LineEnd === -1 ? Text.length : LineEnd;
+        const Line = Text.slice(P, Stop);
+        if (Line.trim() !== '') {
+            const Lead = (Line.match(/^(\s*)/)?.[1] ?? '').length;
+            if (Lead > Indent.length) return false; 
+            if (Line.trim() === Closer && Lead === Indent.length) return false; 
+            return true;                                                      
+        }
+        if (LineEnd === -1) break;
+        P = Stop + 1;
+    }
+    return true;
+}
 
 const AutoClosePairs: Record<string, string> = {
     '(':  ')',
@@ -1027,8 +1123,25 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             const CurrentLine = Text.slice(LineStart, Start);
             const Indent = CurrentLine.match(/^(\s*)/)?.[1] ?? '';
             const Trimmed = CurrentLine.trimEnd();
+            const Bare = Trimmed.trimStart();
+
+            let BlockClose: string | null = null;
+            for (const Rule of (LangBlocks[Language] ?? [])) {
+                if (Rule.Open.test(Bare)) { BlockClose = Rule.Close; break; }
+            }
+
+            if (BlockClose && Start === End && ShouldAutoClose(Text, End, Indent, BlockClose)) {
+                const Inner = Indent + '    ';
+                const NewText = Text.slice(0, Start) + '\n' + Inner + '\n' + Indent + BlockClose + Text.slice(Start);
+                const NewPos = Start + 1 + Inner.length;
+                Textarea.value = NewText;
+                OnContentChange(NewText);
+                PendingCursorRef.current = { Start: NewPos, End: NewPos };
+                return;
+            }
 
             const OpensBlock =
+                BlockClose !== null ||
                 /[\{\(\[]$/.test(Trimmed) ||
                 /\b(then|do|else|elseif|repeat|function)(\s*\(.*\))?\s*$/.test(Trimmed) ||
                 /:\s*$/.test(Trimmed);
@@ -1163,7 +1276,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         if (TextAreaRef.current) TextAreaRef.current.focus();
     }, []);
 
-    // measure monospace char width once fonts are ready
     useEffect(() => {
         const Measure = () => {
             const C = document.createElement("canvas");
@@ -1230,6 +1342,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                             key={Tab.Path}
                             data-path={Tab.Path}
                             className={`${styles.Tab} ${Tab.Path === ActiveFile ? styles.ActiveTab : ""} ${IsClosing ? styles.TabClosing : ""} ${Tab.Path === ActiveFile && ShowSavedFlash && !IsViewport ? styles.TabSaved : ""} ${IsModified ? styles.TabModified : ""} ${IsViewport ? styles.ViewportTab : ""}`}
+                            style={IsViewport ? undefined : TabColorStyle(Tab.Name)}
                             onClick={() => !IsClosing && OnTabSelect?.(Tab.Path)}
                             onAnimationEnd={IsClosing ? () => HandleTabExitEnd(Tab.Path) : undefined}
                         >
@@ -1253,12 +1366,32 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 <div className={styles.WelcomePanel}>
                     <div className={styles.WelcomeHeader}>
                         <span className={styles.WelcomeTitle}>Welcome to Nyx</span>
-                        <span className={styles.WelcomeVersion}>v0.2.2</span>
+                        <span className={styles.WelcomeVersion}>v0.3.0</span>
                     </div>
                     <div className={styles.WelcomeDivider} />
-                    <div className={styles.WelcomeChangelog}>
-                        <div className={styles.WelcomeChangelogLabel}>What's New</div>
-                        <PatchNotesList />
+                    <div className={styles.WelcomeWhatsNew}>
+                        <div className={styles.WelcomeNotice}>
+                            <span className={styles.WelcomeNoticeKicker}>Temporary</span>
+                            <span className={styles.WelcomeNoticeTitle}>Agentic mode limited</span>
+                            <p className={styles.WelcomeNoticeBody}>
+                                Agentic mode runs many chained API calls to work on its own, and on
+                                <strong> OpenAI</strong> and <strong>Anthropic</strong> those tokens add up faster
+                                than we can sustain right now. So for those two providers Agentic is paused — they
+                                still run <strong>Supervised</strong> and <strong>Autonomous</strong> as normal.
+                            </p>
+                            <p className={styles.WelcomeNoticeBody}>
+                                <strong>DeepSeek</strong> is inexpensive enough to keep every mode, including Agentic,
+                                so it's unaffected. We're reworking agentic mode to bring its cost down and will lift
+                                the limit on OpenAI and Anthropic as soon as it's ready.
+                            </p>
+                            <span className={styles.WelcomeNoticeEta}>
+                                Est. ~1 week (around June 21), a rough target, not a firm date
+                            </span>
+                        </div>
+                        <div className={styles.WelcomeChangelog}>
+                            <div className={styles.WelcomeChangelogLabel}>What's New</div>
+                            <PatchNotesList />
+                        </div>
                     </div>
                     <div className={styles.WelcomeDivider} />
                     <div className={styles.WelcomeChangelog}>

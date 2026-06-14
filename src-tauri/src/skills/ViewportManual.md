@@ -100,6 +100,8 @@ Part:Destroy()
 
 Objects are created using a Unity-shaped `GameObject` API. The shim supports primitive creation, `Transform` manipulation, `Rigidbody` physics, `Renderer.material.color`, `RenderSettings`, lights, `Camera`, `Object.Destroy`, and `MonoBehaviour` helper methods. Both PascalCase fields used by Nyx presets and lower-case Unity-style aliases are supported.
 
+When the .NET SDK is available, Nyx compiles the C# file against the embedded Unity shim and executes it to collect scene commands. Top-level snippets run directly. Class-based scenes are also supported: Nyx instantiates scene classes and invokes common Unity-style entry methods such as `Awake`, `Start`, `BuildScene`, `BuildNyxScene`, `Run`, and live-tick `FixedUpdate`/`Update`.
+
 ```csharp
 // Create a cube
 GameObject Cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -130,6 +132,8 @@ Object.Destroy(Cube);
 ### C++ (Unreal target)
 
 Objects are spawned as actors using an Unreal-shaped `UWorld` API. The shim supports `AActor`, `AStaticMeshActor`, `UStaticMeshComponent`, primitive component physics methods, `SetActorLocation`, `SetActorRotation`, `SetActorScale3D`, world gravity, skybox, camera, directional and point lights, and actor destruction through either `AActor::Destroy()` or `UWorld::DestroyActor`.
+
+When a C++ compiler is available, Nyx compiles the file with the embedded `NyxUnrealRuntime.h` shim and a generated `main()`. Scene builder functions named `BuildNyxUnrealObjectTest`, `BuildNyxUnrealScene`, `BuildNyxScene`, `BuildScene`, or `CreateScene` are called with the generated `UWorld&`.
 
 ```cpp
 // Spawn a static mesh actor
@@ -166,5 +170,5 @@ Unreal coordinates are converted into the Nyx scene with Unreal's Z-up conventio
 - The viewport only activates for supported language files (`.luau`, `.lua`, `.cs`, `.cpp`, `.h`). Other file types will not show the Viewport button.
 - Engine mode is determined at open time from the file's language. It does not change while the viewport is open.
 - Runtime scripts execute inside the viewport's sandboxed environment. They cannot access the host filesystem or Nyx's internal state directly.
-- C# and C++ viewport files currently load the `@nyx-scene` JSON block for execution. The Unity and Unreal shims define the supported API shape and generated-command contract, but Nyx does not yet compile and execute arbitrary C# or C++ user code in-process.
+- C# and C++ viewport files compile and execute through local external toolchains when available (`dotnet` for C#, `g++`/`clang++`/`cl` for C++). If the required compiler is missing or compilation fails, Nyx falls back to an embedded `@nyx-scene` JSON block when the file provides one.
 - The scene resets when the viewport is closed and reopened.

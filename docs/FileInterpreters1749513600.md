@@ -59,10 +59,10 @@ All three paths return the same struct:
 **Runtime:** .NET SDK, spawned as a subprocess via `dotnet run` or the compiled output.
 
 **What happens:**
-1. `CompileCSharp()` generates a `.csproj` around the user file and compiles it using the system `dotnet` CLI.
+1. `CompileCSharp()` writes the Unity shim, the user file, and either a top-level snippet wrapper or a reflection-based scene host, then compiles the project using the system `dotnet` CLI.
 2. Output is cached by a hash of the source content so repeated runs skip recompilation.
 3. The compiled binary is executed and its stdout is parsed for JSON command output.
-4. If no .NET SDK is found, the call falls back to `UNITY_SHIM`: a minimal embedded JSON scene so the viewport still shows something.
+4. If no .NET SDK is found or compilation fails, the call falls back to the file's `@nyx-scene` block.
 
 **Fallback shim identifier:** `UNITY_SHIM` (string constant in `scene_runner.rs`).
 
@@ -75,10 +75,10 @@ All three paths return the same struct:
 **Runtime:** System C++ compiler, tried in order: `g++`, `clang++`, `cl` (MSVC).
 
 **What happens:**
-1. `CompileCpp()` wraps the user file in a generated `main()` that includes the NyxUnreal shim header.
+1. `CompileCpp()` writes `NyxUnrealRuntime.h`, places the user C++ at file scope, and appends a generated `main()` that calls a recognised scene builder with `UWorld&`.
 2. The wrapped source is compiled and the binary is cached by source hash.
 3. The compiled binary is executed and stdout is parsed for JSON commands.
-4. If no compiler is found, falls back to `UNREAL_SHIM`.
+4. If no compiler is found or compilation fails, falls back to the file's `@nyx-scene` block.
 
 **Fallback shim identifier:** `UNREAL_SHIM` (string constant in `scene_runner.rs`).
 

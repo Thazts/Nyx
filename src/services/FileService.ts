@@ -21,6 +21,10 @@ export const FileService = {
         return invoke<string>("select_folder");
     },
 
+    async OpenWorkspace(Config: { Path: string }): Promise<string> {
+        return invoke<string>("open_workspace", { path: Config.Path });
+    },
+
     async GetFileMetadata(Config: { Path: string }): Promise<{ Size: number; Modified: string }> {
         const Result = await invoke<{ size: number; modified: string }>("get_file_metadata", { path: Config.Path });
         return { Size: Result.size, Modified: Result.modified };

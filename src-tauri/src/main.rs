@@ -10,6 +10,7 @@ use tauri::Manager;
 mod agent_runtime;
 mod commands;
 mod renderer;
+mod security;
 mod skills;
 mod state;
 
@@ -57,6 +58,9 @@ fn main() {
             commands::save_file,
             commands::run_terminal_command,
             commands::select_folder,
+            commands::open_workspace,
+            commands::charon_start,
+            commands::charon_sync,
             commands::get_file_metadata,
             commands::capture_command,
             commands::run_file,
@@ -88,6 +92,7 @@ fn main() {
             commands::renderer_undo,
             commands::renderer_redo,
             commands::renderer_delete_part,
+            commands::renderer_return_to_script,
             commands::renderer_subdivide_selected,
             commands::renderer_extrude_selected_face,
             commands::renderer_delete_selected_face,

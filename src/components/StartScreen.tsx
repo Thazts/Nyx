@@ -67,7 +67,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({ OnOpenFolder, OnContin
                                         <span className={styles.BrandDot} />
                                         <h1 className={styles.Title}>Nyx</h1>
                                     </div>
-                                    <p className={styles.Tagline}>code editor · v0.3.0</p>
+                                    <p className={styles.Tagline}>code editor · v0.3.2</p>
                                 </div>
 
                                 <div className={styles.Actions}>

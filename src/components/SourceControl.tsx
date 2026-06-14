@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import styles from "../styles/SourceControl.module.css";
 import { GitService, GitStatus, GitFileEntry } from "../services/GitService";
+import { UsePanelDismiss } from "../ui/UILib";
 
 interface SourceControlProps {
     WorkspacePath: string | null;
     Branch:        string;
-    OnClose:       () => void;
 }
 
 function StatusBadge({ Code }: { Code: string }) {
@@ -62,7 +62,8 @@ const DiscardIcon = () => (
     </svg>
 );
 
-export const SourceControl: React.FC<SourceControlProps> = ({ WorkspacePath, Branch, OnClose }) => {
+export const SourceControl: React.FC<SourceControlProps> = ({ WorkspacePath, Branch }) => {
+    const { Closing, Dismiss, HandleAnimationEnd } = UsePanelDismiss("SourceControl");
     const [Status, SetStatus]     = useState<GitStatus | null>(null);
     const [Loading, SetLoading]   = useState(false);
     const [CommitMsg, SetCommitMsg] = useState("");
@@ -132,8 +133,8 @@ export const SourceControl: React.FC<SourceControlProps> = ({ WorkspacePath, Bra
 
     return (
         <>
-            <div className={styles.Backdrop} onClick={OnClose} />
-            <div className={styles.Panel}>
+            <div className={`${styles.Backdrop} ${Closing ? styles.Closing : ""}`} onClick={Dismiss} />
+            <div className={`${styles.Panel} ${Closing ? styles.Closing : ""}`} onAnimationEnd={HandleAnimationEnd}>
                 <div className={styles.Header}>
                     <div className={styles.HeaderLeft}>
                         <span className={styles.Title}>Source Control</span>
@@ -149,7 +150,7 @@ export const SourceControl: React.FC<SourceControlProps> = ({ WorkspacePath, Bra
                                 <RefreshIcon />
                             </span>
                         </button>
-                        <button className={styles.IconBtn} onClick={OnClose} title="Close">
+                        <button className={styles.IconBtn} onClick={Dismiss} title="Close">
                             <CloseIcon />
                         </button>
                     </div>

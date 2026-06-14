@@ -158,7 +158,7 @@ function IsChangeTool(name: string): boolean {
         || name === "write_obsidian";
 }
 
-type SkillId = "fengshui_protocol" | "self_help" | "lua_luau" | "viewport_manual";
+type SkillId = "fengshui_protocol" | "self_help" | "lua_luau" | "viewport_manual" | "security_review";
 type SkillDefinition = {
     Id: SkillId;
     Label: string;
@@ -172,6 +172,7 @@ const AVAILABLE_SKILLS: readonly SkillDefinition[] = [
     { Id: "self_help",         Label: "SelfHelp",         Classification: 2 as const, Hidden: false, Description: "Nyx project knowledge: design decisions, tech choices, and how to get help" },
     { Id: "lua_luau",          Label: "Lua/Luau",         Classification: 2 as const, Hidden: false, Description: "Lua and Luau language reference including Roblox development patterns" },
     { Id: "viewport_manual",   Label: "ViewportManual",   Classification: 2 as const, Hidden: true,  Description: "Nyx viewport manual; auto-activates on viewport topics" },
+    { Id: "security_review",   Label: "SecurityReview",   Classification: 2 as const, Hidden: false, Description: "Adversarial what-if security review: attack code/designs to surface vulnerabilities and harden trust boundaries" },
 ] as const;
 
 const SKILL_INTENT_PATTERNS: Partial<Record<SkillId, RegExp>> = {
@@ -633,6 +634,13 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
         : [];
 
     useEffect(() => {
+        if (Mode === "agentic" && Provider !== "deepseek") {
+            SetMode("autonomous");
+            AiService.SaveAppSettings({ AiMode: "autonomous" }).catch(() => {});
+        }
+    }, [Mode, Provider]);
+
+    useEffect(() => {
         if (!Config || AvailableProviders.length === 0) return;
 
         const ProviderHasKey = Provider === "anthropic"
@@ -978,15 +986,16 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
     }, []);
 
     const HandleModeToggle = useCallback(() => {
-        const Next: AiMode =
-            Mode === "supervised" ? "autonomous" :
-            Mode === "autonomous" ? "agentic" :
-            "supervised";
+        const Cycle: AiMode[] = Provider === "deepseek"
+            ? ["supervised", "autonomous", "agentic"]
+            : ["supervised", "autonomous"];
+        const CurrentIndex = Cycle.indexOf(Mode);
+        const Next = Cycle[(CurrentIndex + 1) % Cycle.length] ?? "supervised";
         SetMode(Next);
         AiService.GetAppSettings().then(S =>
             AiService.SaveAppSettings({ ...S, AiMode: Next })
         ).catch(() => {});
-    }, [Mode]);
+    }, [Mode, Provider]);
 
     const HandleOpenNyxCli = useCallback(() => {
         AiService.LaunchNyxCli(Workspace).catch((Err: unknown) => {
@@ -1035,8 +1044,9 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
                     onClick={HandleModeToggle}
                     title={
                         Mode === "supervised" ? "Supervised: writes/commands need approval" :
-                        Mode === "autonomous" ? "Autonomous: AI executes all tools without asking" :
-                        "Agentic: autonomous execution with sliced planning and memory checkpoints"
+                        Mode === "autonomous"
+                            ? `Autonomous: file tools run directly; shell commands need approval${Provider !== "deepseek" ? " — Agentic is DeepSeek-only (cost)" : ""}`
+                            : "Agentic: sliced autonomous work; shell commands need approval"
                     }
                 >
                     {Mode}
@@ -1136,8 +1146,8 @@ export const AiPanel: React.FC<AiPanelProps> = ({ ActiveFile, Workspace, OnOpenF
                                 commands, use configured notes and memory, and ask clarifying questions.
                             </p>
                             <p>
-                                Supervised mode asks before writes and commands. Autonomous and agentic modes can execute allowed actions
-                                <span className={styles.DisclosureHot}> without</span> those approval prompts.
+                                Supervised mode asks before writes and commands. Autonomous and agentic modes can execute file actions
+                                <span className={styles.DisclosureHot}> without</span> those approval prompts, but shell commands still ask.
                                 <span className={styles.DisclosureWarn}> Do not paste secrets</span> unless you intend to send them
                                 to the selected provider.
                             </p>

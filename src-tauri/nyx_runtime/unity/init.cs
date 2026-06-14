@@ -1,4 +1,4 @@
-// Nyx Engine     Unity Runtime Shim
+// Nyx Engine - Unity Runtime Shim
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -49,7 +49,11 @@ namespace UnityEngine
         public static Vector3 operator /(Vector3 A, float B) => new Vector3(A.X / B, A.Y / B, A.Z / B);
 
         public float Magnitude => (float)Math.Sqrt(X * X + Y * Y + Z * Z);
+        public float SqrMagnitude => X * X + Y * Y + Z * Z;
         public Vector3 Normalized => Magnitude <= 0.0001f ? Zero : this / Magnitude;
+        public float magnitude => Magnitude;
+        public float sqrMagnitude => SqrMagnitude;
+        public Vector3 normalized => Normalized;
 
         public static float Dot(Vector3 A, Vector3 B) => A.X * B.X + A.Y * B.Y + A.Z * B.Z;
         public static Vector3 Cross(Vector3 A, Vector3 B) => new Vector3(
@@ -57,6 +61,15 @@ namespace UnityEngine
             A.Z * B.X - A.X * B.Z,
             A.X * B.Y - A.Y * B.X);
         public static Vector3 Lerp(Vector3 A, Vector3 B, float T) => A + (B - A) * Mathf.Clamp01(T);
+        public static float Distance(Vector3 A, Vector3 B) => (A - B).Magnitude;
+
+        public void Normalize()
+        {
+            var Normal = Normalized;
+            X = Normal.X;
+            Y = Normal.Y;
+            Z = Normal.Z;
+        }
     }
 
     public struct Color
@@ -148,11 +161,17 @@ namespace UnityEngine
     public static class Mathf
     {
         public const float PI = 3.14159265359f;
+        public const float Deg2Rad = PI / 180f;
+        public const float Rad2Deg = 180f / PI;
         public static float Clamp01(float Value) => Value < 0f ? 0f : Value > 1f ? 1f : Value;
+        public static float Clamp(float Value, float Min, float Max) => Value < Min ? Min : Value > Max ? Max : Value;
         public static float Max(float A, float B) => Math.Max(A, B);
         public static float Min(float A, float B) => Math.Min(A, B);
         public static float Abs(float Value) => Math.Abs(Value);
         public static float Sqrt(float Value) => (float)Math.Sqrt(Value);
+        public static float Sin(float Value) => (float)Math.Sin(Value);
+        public static float Cos(float Value) => (float)Math.Cos(Value);
+        public static float Tan(float Value) => (float)Math.Tan(Value);
         public static float Lerp(float A, float B, float T) => A + (B - A) * Clamp01(T);
     }
 
@@ -313,14 +332,31 @@ namespace UnityEngine
         public void AddForce(Vector3 Force, ForceMode Mode = ForceMode.Force)
         {
             var SafeMass = Math.Max(Mass, 0.001f);
-            if (Mode == ForceMode.Impulse || Mode == ForceMode.VelocityChange)
+            if (Mode == ForceMode.Impulse)
             {
-                Impulse += Mode == ForceMode.VelocityChange ? Force * SafeMass : Force;
-                Velocity += Force / SafeMass;
+                Impulse += Force;
+            }
+            else if (Mode == ForceMode.VelocityChange)
+            {
+                Impulse += Force * SafeMass;
             }
             else
             {
                 this.Force += Mode == ForceMode.Acceleration ? Force * SafeMass : Force;
+            }
+            NotifyChanged();
+        }
+
+        public void AddTorque(Vector3 Torque, ForceMode Mode = ForceMode.Force)
+        {
+            var SafeMass = Math.Max(Mass, 0.001f);
+            if (Mode == ForceMode.Impulse || Mode == ForceMode.VelocityChange)
+            {
+                AngularVelocity += Mode == ForceMode.VelocityChange ? Torque : Torque / SafeMass;
+            }
+            else
+            {
+                AngularVelocity += Torque / SafeMass * Time.FixedDeltaTime;
             }
             NotifyChanged();
         }
@@ -731,6 +767,9 @@ namespace UnityEngine
                 ["RotVelocity"] = Vec(Body == null ? Vector3.Zero : Body.AngularVelocity),
                 ["Force"] = Vec(Body == null ? Vector3.Zero : Body.Force),
                 ["Impulse"] = Vec(Body == null ? Vector3.Zero : Body.Impulse),
+                ["UseGravity"] = Body == null || Body.UseGravity,
+                ["LinearDamping"] = Body == null ? 0f : Body.Drag,
+                ["AngularDamping"] = Body == null ? 0.05f : Body.AngularDrag,
                 ["Massless"] = false,
                 ["Mass"] = Body == null ? 0f : Body.Mass,
                 ["Density"] = 1f,

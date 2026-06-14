@@ -179,6 +179,11 @@
     transition: transform var(--td) var(--spring);
 }
 
+.FileIcon {
+    color: var(--file-color, var(--txt3));
+    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--file-color, var(--txt3)) 22%, transparent));
+}
+
 .Item:hover .Icon {
     transform: scale(1.15);
 }
@@ -319,14 +324,6 @@
     background: var(--brd);
     margin: 3px 4px;
 }
-
-.IconBlue   { color: var(--fn);  }
-.IconGreen  { color: var(--str); }
-.IconAmber  { color: var(--num); }
-.IconPurple { color: var(--ty);  }
-.IconPink   { color: var(--kw);  }
-.IconMuted  { color: var(--txt3);}
-.IconOrange { color: #E8906A;    }
 
 .SaveCount {
     margin-left: auto;

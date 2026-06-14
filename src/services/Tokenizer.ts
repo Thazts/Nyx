@@ -27,10 +27,50 @@ const ExtMap: Record<string, string> = {
     cs: "csharp",
     java: "java",
     xml: "xml",
+    kt: "kotlin", kts: "kotlin",
+    swift: "swift",
+    dart: "dart",
+    rb: "ruby",
+    php: "php",
+    hlsl: "hlsl", hlsli: "hlsl", fx: "hlsl",
+    graphql: "graphql", gql: "graphql",
+    zig: "zig",
+    scala: "scala", sc: "scala",
+    ex: "elixir", exs: "elixir",
+    hs: "haskell",
+    dockerfile: "dockerfile",
+    makefile: "makefile", mk: "makefile", mak: "makefile",
+    nim: "nim", nims: "nim", nimble: "nim",
+    v: "vlang", vsh: "vlang", vv: "vlang",
+    red: "red", reds: "red",
+    ijs: "j",
+    apl: "apl", aplf: "apl", dyalog: "apl",
+    factor: "factor",
+    idr: "idris", lidr: "idris",
+    ml: "ocaml", mli: "ocaml",
+    fs: "fsharp", fsi: "fsharp", fsx: "fsharp",
+    erl: "erlang", hrl: "erlang",
+    rkt: "racket",
+    scm: "scheme", ss: "scheme",
+    lisp: "lisp", cl: "lisp",
+    f: "fortran", f90: "fortran", f95: "fortran", f03: "fortran",
+    f08: "fortran", for: "fortran",
+    cob: "cobol", cbl: "cobol", cpy: "cobol",
+    adb: "ada", ads: "ada",
+    cr: "crystal",
+    jl: "julia",
+    bf: "brainfuck", b: "brainfuck",
+    ws: "whitespace",
+    lol: "lolcode", lols: "lolcode",
+    bef: "befunge", b93: "befunge", befunge: "befunge",
+    chef: "chef",
 };
 
 export function DetectLanguage(FileName: string): string {
-    const Ext = FileName.split(".").pop()?.toLowerCase() ?? "";
+    const Base = FileName.split(/[\\/]/).pop()?.toLowerCase() ?? FileName.toLowerCase();
+    if (Base === "dockerfile") return "dockerfile";
+    if (Base === "makefile" || Base === "gnumakefile") return "makefile";
+    const Ext = Base.split(".").pop()?.toLowerCase() ?? "";
     return ExtMap[Ext] ?? "plain";
 }
 
@@ -636,6 +676,612 @@ function TokeniseXml(Source: string): Token[] {
     return Result;
 }
 
+const KotlinKeywords = new Set([
+    "fun", "val", "var", "class", "object", "interface", "data", "sealed",
+    "enum", "open", "abstract", "override", "public", "private", "protected",
+    "internal", "companion", "init", "constructor", "this", "super", "return",
+    "if", "else", "when", "for", "while", "do", "break", "continue", "in",
+    "is", "as", "try", "catch", "finally", "throw", "import", "package",
+    "typealias", "by", "get", "set", "lateinit", "lazy", "suspend", "inline",
+    "reified", "vararg", "out", "where", "null", "true", "false", "Unit",
+    "Int", "String", "Boolean", "Long", "Double", "Float", "Char", "Any",
+    "List", "Map", "Set", "Array",
+]);
+
+const CurlyTriplePattern = /(?<comment>\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(?<string>"""[\s\S]*?"""|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(?<number>0x[0-9a-fA-F_]+|0b[01_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?[fFlLdDuU]*)|(?<ident>@[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_$][A-Za-z0-9_$]*)|(?<op>[+\-*/%&|^!~<>=?.,:;@(){}[\]])/g;
+
+function TokeniseKotlin(Source: string): Token[] {
+    return TokeniseWithPattern(Source, CurlyTriplePattern, KotlinKeywords);
+}
+
+const SwiftKeywords = new Set([
+    "func", "let", "var", "class", "struct", "enum", "protocol", "extension",
+    "init", "deinit", "self", "Self", "super", "return", "if", "else",
+    "guard", "switch", "case", "default", "for", "while", "repeat", "break",
+    "continue", "in", "where", "as", "is", "try", "catch", "throw", "throws",
+    "rethrows", "defer", "do", "import", "typealias", "associatedtype",
+    "public", "private", "fileprivate", "internal", "open", "static", "final",
+    "override", "mutating", "nonmutating", "lazy", "weak", "unowned", "inout",
+    "indirect", "convenience", "required", "some", "any", "nil", "true",
+    "false", "async", "await", "actor", "Int", "String", "Bool", "Double",
+    "Float", "Void", "Array", "Dictionary", "Optional",
+]);
+
+function TokeniseSwift(Source: string): Token[] {
+    return TokeniseWithPattern(Source, CurlyTriplePattern, SwiftKeywords);
+}
+
+const DartKeywords = new Set([
+    "void", "var", "final", "const", "dynamic", "class", "abstract", "extends",
+    "implements", "with", "mixin", "enum", "typedef", "return", "if", "else",
+    "switch", "case", "default", "for", "while", "do", "break", "continue",
+    "in", "is", "as", "new", "this", "super", "try", "catch", "finally",
+    "throw", "rethrow", "import", "export", "library", "part", "show", "hide",
+    "async", "await", "yield", "sync", "get", "set", "static", "factory",
+    "operator", "late", "required", "covariant", "external", "true", "false",
+    "null", "int", "double", "num", "bool", "String", "List", "Map", "Set",
+    "Future", "Stream",
+]);
+
+function TokeniseDart(Source: string): Token[] {
+    return TokeniseWithPattern(Source, CurlyTriplePattern, DartKeywords);
+}
+
+const ScalaKeywords = new Set([
+    "def", "val", "var", "class", "object", "trait", "extends", "with",
+    "case", "match", "if", "else", "for", "while", "do", "yield", "return",
+    "try", "catch", "finally", "throw", "import", "package", "new", "this",
+    "super", "override", "abstract", "final", "sealed", "implicit", "lazy",
+    "private", "protected", "public", "type", "given", "using", "enum",
+    "then", "true", "false", "null", "Unit", "Int", "String", "Boolean",
+    "Long", "Double", "Float", "List", "Map", "Option", "Some", "None",
+]);
+
+function TokeniseScala(Source: string): Token[] {
+    return TokeniseWithPattern(Source, CurlyTriplePattern, ScalaKeywords);
+}
+
+const HlslKeywords = new Set([
+    "float", "float2", "float3", "float4", "float2x2", "float3x3", "float4x4",
+    "int", "int2", "int3", "int4", "uint", "uint2", "uint3", "uint4", "bool",
+    "half", "double", "void", "struct", "cbuffer", "tbuffer", "register",
+    "return", "if", "else", "for", "while", "do", "switch", "case", "default",
+    "break", "continue", "discard", "in", "out", "inout", "uniform", "static",
+    "const", "sampler", "sampler2D", "SamplerState", "SamplerComparisonState",
+    "Texture1D", "Texture2D", "Texture3D", "TextureCube", "Texture2DArray",
+    "RWTexture2D", "Buffer", "StructuredBuffer", "RWStructuredBuffer",
+    "ByteAddressBuffer", "technique", "pass", "true", "false", "matrix",
+    "vector", "numthreads", "groupshared", "precise", "row_major", "column_major",
+    "SV_Position", "SV_Target", "SV_TARGET", "SV_POSITION", "SV_VertexID",
+    "SV_InstanceID", "SV_DispatchThreadID", "SV_GroupID", "SV_GroupThreadID",
+    "POSITION", "NORMAL", "TEXCOORD", "COLOR", "TANGENT", "BINORMAL",
+]);
+
+function TokeniseHlsl(Source: string): Token[] {
+    return TokeniseWithPattern(Source, CPattern, HlslKeywords);
+}
+
+const ZigKeywords = new Set([
+    "const", "var", "fn", "pub", "struct", "enum", "union", "error", "if",
+    "else", "while", "for", "switch", "return", "break", "continue", "defer",
+    "errdefer", "try", "catch", "orelse", "unreachable", "comptime", "inline",
+    "export", "extern", "async", "await", "suspend", "resume", "nosuspend",
+    "test", "and", "or", "null", "undefined", "true", "false", "void", "bool",
+    "type", "anytype", "anyerror", "anyopaque", "usize", "isize",
+    "u8", "u16", "u32", "u64", "u128", "i8", "i16", "i32", "i64", "i128",
+    "f16", "f32", "f64", "f128", "noreturn",
+]);
+
+const ZigPattern = /(?<comment>\/\/[^\n]*)|(?<string>\\\\[^\n]*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(?<number>0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?)|(?<ident>@[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)|(?<op>[+\-*/%&|^!~<>=?.,:;(){}[\]])/g;
+
+function TokeniseZig(Source: string): Token[] {
+    return TokeniseWithPattern(Source, ZigPattern, ZigKeywords);
+}
+
+const RubyKeywords = new Set([
+    "def", "end", "class", "module", "if", "elsif", "else", "unless", "case",
+    "when", "then", "while", "until", "for", "in", "do", "begin", "rescue",
+    "ensure", "raise", "return", "yield", "break", "next", "redo", "retry",
+    "and", "or", "not", "nil", "true", "false", "self", "super", "require",
+    "require_relative", "include", "extend", "attr_accessor", "attr_reader",
+    "attr_writer", "lambda", "proc", "puts", "print", "new", "loop",
+]);
+
+const RubyPattern = /(?<comment>#[^\n]*)|(?<string>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|:[A-Za-z_][A-Za-z0-9_]*[?!]?)|(?<number>0x[0-9a-fA-F_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?)|(?<ident>@@?[A-Za-z_][A-Za-z0-9_]*|\$[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*[?!]?)|(?<op>[+\-*/%&|^~<>=!?.,:;(){}[\]])/g;
+
+function TokeniseRuby(Source: string): Token[] {
+    return TokeniseWithPattern(Source, RubyPattern, RubyKeywords);
+}
+
+const PhpKeywords = new Set([
+    "function", "class", "interface", "trait", "extends", "implements",
+    "abstract", "final", "public", "private", "protected", "static", "const",
+    "var", "return", "if", "else", "elseif", "switch", "case", "default",
+    "for", "foreach", "while", "do", "break", "continue", "as", "new",
+    "clone", "this", "self", "parent", "try", "catch", "finally", "throw",
+    "namespace", "use", "echo", "print", "isset", "unset", "empty", "list",
+    "array", "null", "true", "false", "instanceof", "global", "require",
+    "require_once", "include", "include_once", "fn", "match", "enum",
+    "readonly", "yield",
+]);
+
+const PhpPattern = /(?<comment>\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/)|(?<string>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(?<number>0x[0-9a-fA-F]+|\d+\.?\d*(?:[eE][+-]?\d+)?)|(?<ident>\$[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)|(?<op>[+\-*/%&|^!~<>=?.,:;@(){}[\]])/g;
+
+function TokenisePhp(Source: string): Token[] {
+    return TokeniseWithPattern(Source, PhpPattern, PhpKeywords);
+}
+
+const ElixirKeywords = new Set([
+    "def", "defp", "defmodule", "defmacro", "defmacrop", "defstruct",
+    "defprotocol", "defimpl", "defdelegate", "defguard", "do", "end", "fn",
+    "if", "else", "unless", "case", "cond", "with", "for", "when", "and",
+    "or", "not", "in", "nil", "true", "false", "raise", "try", "rescue",
+    "catch", "after", "import", "alias", "require", "use", "receive",
+    "quote", "unquote",
+]);
+
+const ElixirPattern = /(?<comment>#[^\n]*)|(?<string>"""[\s\S]*?"""|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|:[A-Za-z_][A-Za-z0-9_]*[?!]?|:"[^"]*")|(?<number>0x[0-9a-fA-F_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?)|(?<ident>@[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*[?!]?)|(?<op>[+\-*/%&|^~<>=!?.,:;(){}[\]])/g;
+
+function TokeniseElixir(Source: string): Token[] {
+    return TokeniseWithPattern(Source, ElixirPattern, ElixirKeywords);
+}
+
+const HaskellKeywords = new Set([
+    "module", "where", "import", "data", "type", "newtype", "class",
+    "instance", "deriving", "do", "let", "in", "case", "of", "if", "then",
+    "else", "infix", "infixl", "infixr", "foreign", "default", "as",
+    "hiding", "qualified",
+]);
+
+const HaskellPattern = /(?<comment>--[^\n]*|\{-[\s\S]*?-\})|(?<string>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)')|(?<number>0x[0-9a-fA-F]+|\d+\.?\d*(?:[eE][+-]?\d+)?)|(?<ident>[A-Za-z_][A-Za-z0-9_']*)|(?<op>[+\-*/%&|^~<>=!?.,:;(){}[\]@$])/g;
+
+function TokeniseHaskell(Source: string): Token[] {
+    return TokeniseWithPattern(Source, HaskellPattern, HaskellKeywords);
+}
+
+const GraphqlKeywords = new Set([
+    "query", "mutation", "subscription", "type", "input", "enum", "interface",
+    "union", "scalar", "schema", "fragment", "on", "implements", "directive",
+    "extend", "true", "false", "null",
+]);
+
+const GraphqlPattern = /(?<comment>#[^\n]*)|(?<string>"""[\s\S]*?"""|"(?:[^"\\]|\\.)*")|(?<number>-?\d+\.?\d*(?:[eE][+-]?\d+)?)|(?<ident>\$[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)|(?<op>[(){}\[\]:=!|&.,])/g;
+
+function TokeniseGraphql(Source: string): Token[] {
+    return TokeniseWithPattern(Source, GraphqlPattern, GraphqlKeywords);
+}
+
+const DockerfileKeywords = new Set([
+    "FROM", "RUN", "CMD", "LABEL", "MAINTAINER", "EXPOSE", "ENV", "ADD",
+    "COPY", "ENTRYPOINT", "VOLUME", "USER", "WORKDIR", "ARG", "ONBUILD",
+    "STOPSIGNAL", "HEALTHCHECK", "SHELL", "AS",
+]);
+
+const DockerfilePattern = /(?<comment>#[^\n]*)|(?<string>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(?<number>\d+)|(?<ident>\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|[A-Za-z_][A-Za-z0-9_]*)|(?<op>[=:\\(){}[\]])/g;
+
+function TokeniseDockerfile(Source: string): Token[] {
+    return TokeniseWithPattern(Source, DockerfilePattern, DockerfileKeywords);
+}
+
+const MakefileKeywords = new Set([
+    "ifeq", "ifneq", "ifdef", "ifndef", "else", "endif", "include",
+    "sinclude", "define", "endef", "export", "unexport", "override",
+    "vpath", ".PHONY", ".DEFAULT", ".PRECIOUS", ".SECONDARY", ".SUFFIXES",
+    ".INTERMEDIATE", ".NOTPARALLEL",
+]);
+
+const MakefilePattern = /(?<comment>#[^\n]*)|(?<string>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(?<number>\d+)|(?<ident>\$[({][A-Za-z_][A-Za-z0-9_]*[)}]|\.[A-Z]+|[A-Za-z_][A-Za-z0-9_\-]*)|(?<op>[=:+?@(){}|<>])/g;
+
+function TokeniseMakefile(Source: string): Token[] {
+    return TokeniseWithPattern(Source, MakefilePattern, MakefileKeywords);
+}
+
+const NimKeywords = new Set([
+    "addr", "and", "as", "asm", "bind", "block", "break", "case", "cast",
+    "concept", "const", "continue", "converter", "defer", "discard",
+    "distinct", "div", "do", "elif", "else", "end", "enum", "except",
+    "export", "finally", "for", "from", "func", "if", "import", "in",
+    "include", "interface", "is", "isnot", "iterator", "let", "macro",
+    "method", "mixin", "mod", "nil", "not", "notin", "object", "of", "or",
+    "out", "proc", "ptr", "raise", "ref", "return", "shl", "shr", "static",
+    "template", "try", "tuple", "type", "using", "var", "when", "while",
+    "xor", "yield", "echo", "result", "true", "false",
+    "int", "float", "string", "bool", "char", "seq", "array", "uint",
+    "int8", "int16", "int32", "int64", "float32", "float64", "byte", "void",
+]);
+
+const NimPattern = /(?<comment>#\[[\s\S]*?\]#|#[^\n]*)|(?<string>"""[\s\S]*?"""|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)')|(?<number>0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?(?:'?[iuf]\d+)?)|(?<ident>[A-Za-z_][A-Za-z0-9_]*)|(?<op>[+\-*/%&|^!~<>=?.,:;@(){}[\]])/g;
+
+function TokeniseNim(Source: string): Token[] {
+    return TokeniseWithPattern(Source, NimPattern, NimKeywords);
+}
+
+const VKeywords = new Set([
+    "fn", "mut", "pub", "struct", "enum", "interface", "union", "type",
+    "const", "module", "import", "if", "else", "match", "for", "in", "is",
+    "as", "or", "return", "break", "continue", "go", "spawn", "defer",
+    "unsafe", "none", "true", "false", "sizeof", "typeof", "isreftype",
+    "__global", "shared", "lock", "rlock", "select", "assert", "asm",
+    "static", "volatile", "atomic", "nil",
+    "int", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32",
+    "f64", "bool", "string", "rune", "byte", "voidptr", "any", "map",
+    "chan", "thread", "isize", "usize",
+]);
+
+const VPattern = /(?<comment>\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(?<string>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(?<number>0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?)|(?<ident>@?[A-Za-z_][A-Za-z0-9_]*|\$[A-Za-z_][A-Za-z0-9_]*)|(?<op>[+\-*/%&|^!~<>=?.,:;(){}[\]])/g;
+
+function TokeniseV(Source: string): Token[] {
+    return TokeniseWithPattern(Source, VPattern, VKeywords);
+}
+
+const RedKeywords = new Set([
+    "func", "function", "does", "has", "if", "either", "unless", "case",
+    "switch", "while", "until", "loop", "repeat", "foreach", "forall",
+    "forever", "break", "continue", "return", "exit", "print", "prin",
+    "probe", "do", "make", "context", "object", "none", "true", "false",
+    "on", "off", "yes", "no", "all", "any", "not", "and", "or", "xor",
+    "reduce", "compose", "append", "insert", "remove", "find", "select",
+]);
+
+const RedPattern = /(?<comment>;[^\n]*)|(?<string>\{[^{}]*\}|"(?:[^"^]|\^.)*")|(?<number>[+\-]?\d+\.?\d*(?:[eE][+-]?\d+)?%?)|(?<ident>[A-Za-z_][A-Za-z0-9_!?*+\-]*:|\/[A-Za-z_][A-Za-z0-9_!?*+\-]*|[A-Za-z_][A-Za-z0-9_!?*+\-]*)|(?<op>[=<>+\-*/(){}\[\]])/g;
+
+function TokeniseRed(Source: string): Token[] {
+    const Raw = TokeniseWithPattern(Source, RedPattern, RedKeywords);
+    return Raw.map(T => {
+        if (T.Type === "Default" || T.Type === "Function" || T.Type === "Type") {
+            if (/:$/.test(T.Value)) return { ...T, Type: "Type" as TokenType };
+            if (/^\//.test(T.Value)) return { ...T, Type: "Function" as TokenType };
+        }
+        return T;
+    });
+}
+
+const JKeywords = new Set([
+    "if.", "do.", "else.", "elseif.", "end.", "for.", "while.", "whilst.",
+    "select.", "case.", "fcase.", "try.", "catch.", "catchd.", "catcht.",
+    "throw.", "return.", "assert.", "break.", "continue.", "goto.", "label.",
+]);
+
+const JPattern = /(?<comment>NB\.[^\n]*)|(?<string>'(?:[^']|'')*')|(?<number>_?\d+\.?\d*(?:[eE_]\d+)?)|(?<ident>[A-Za-z][A-Za-z0-9_]*[.:]?)|(?<op>[+\-*/%&|^!~<>=?,;@#$\[\](){}]|[.:])/g;
+
+function TokeniseJ(Source: string): Token[] {
+    return TokeniseWithPattern(Source, JPattern, JKeywords);
+}
+
+const AplKeywords = new Set([
+    ":If", ":Else", ":ElseIf", ":EndIf", ":While", ":EndWhile", ":Repeat",
+    ":Until", ":For", ":EndFor", ":Select", ":Case", ":CaseList",
+    ":EndSelect", ":Trap", ":EndTrap", ":Return", ":Continue", ":Leave",
+    ":GoTo", ":Namespace", ":EndNamespace", ":Class", ":EndClass", ":With",
+    ":EndWith", ":Hold", ":EndHold", ":Section", ":EndSection",
+]);
+
+const AplPattern = /(?<comment>⍝[^\n]*)|(?<string>'(?:[^']|'')*')|(?<number>¯?\d+\.?\d*(?:[eE]¯?\d+)?)|(?<ident>:[A-Za-z]+|⎕[A-Za-z]*|[A-Za-z_∆⍙][A-Za-z0-9_∆⍙]*)|(?<op>[←→+\-×÷⌈⌊∣⍳⍸∊⍷⌽⊖⍉↑↓⊂⊃⌷⍋⍒⍱⍲∧∨~≠=≤≥<>≡≢⊢⊣⍺⍵¨⍨⍣⍤⍥⍞⍠⍢∇⋄∘⍟⌹⊥⊤⍕⍎!?*|.,;:(){}\[\]/\\])/g;
+
+function TokeniseApl(Source: string): Token[] {
+    return TokeniseWithPattern(Source, AplPattern, AplKeywords);
+}
+
+const FactorKeywords = new Set([
+    "USING:", "USE:", "IN:", "GENERIC:", "GENERIC#", "M:", "TUPLE:",
+    "SYMBOL:", "SYMBOLS:", "CONSTANT:", "PREDICATE:", "MIXIN:", "INSTANCE:",
+    "SLOT:", "HOOK:", "MACRO:", "MEMO:", "DEFER:", "FORGET:", "PRIMITIVE:",
+    "C-TYPE:", "<PRIVATE", "PRIVATE>", ":", ";",
+    "if", "when", "unless", "cond", "case", "while", "until", "each", "map",
+    "filter", "reduce", "dup", "drop", "swap", "over", "rot", "nip", "tuck",
+    "pick", "2dup", "call", "dip", "keep", "bi", "tri", "t", "f",
+]);
+
+const FactorPattern = /(?<comment>(?:#!|!)(?=\s|$)[^\n]*)|(?<string>"(?:[^"\\]|\\.)*")|(?<number>[+\-]?\d+(?:\.\d+)?(?=\s|$))|(?<op>[(){}\[\]])|(?<ident>[^\s(){}\[\]]+)/g;
+
+function TokeniseFactor(Source: string): Token[] {
+    return TokeniseWithPattern(Source, FactorPattern, FactorKeywords);
+}
+
+const IdrisKeywords = new Set([
+    "module", "where", "import", "data", "record", "interface",
+    "implementation", "do", "let", "in", "case", "of", "if", "then", "else",
+    "with", "mutual", "namespace", "using", "parameters", "total", "partial",
+    "covering", "public", "export", "private", "infixl", "infixr", "infix",
+    "prefix", "auto", "impossible", "rewrite", "proof", "Type", "claim",
+    "provide", "syntax", "pattern", "term", "forall",
+]);
+
+const IdrisPattern = /(?<comment>--[^\n]*|\{-[\s\S]*?-\})|(?<string>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)')|(?<number>0x[0-9a-fA-F]+|\d+\.?\d*(?:[eE][+-]?\d+)?)|(?<ident>[A-Za-z_][A-Za-z0-9_']*)|(?<op>[+\-*/%&|^~<>=!?.,:;(){}[\]@$])/g;
+
+function TokeniseIdris(Source: string): Token[] {
+    return TokeniseWithPattern(Source, IdrisPattern, IdrisKeywords);
+}
+
+const OcamlKeywords = new Set([
+    "let", "rec", "in", "fun", "function", "match", "with", "type", "module",
+    "struct", "sig", "end", "open", "include", "if", "then", "else", "begin",
+    "val", "and", "or", "not", "mutable", "ref", "of", "when", "as", "try",
+    "raise", "exception", "class", "object", "method", "inherit", "new",
+    "lazy", "assert", "while", "do", "done", "for", "to", "downto", "true",
+    "false", "unit", "int", "float", "string", "bool", "list", "array",
+    "option", "Some", "None", "external", "functor", "constraint", "nonrec",
+]);
+
+const OcamlPattern = /(?<comment>\(\*[\s\S]*?\*\))|(?<string>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)')|(?<number>0x[0-9a-fA-F_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?)|(?<ident>[A-Za-z_][A-Za-z0-9_']*)|(?<op>[+\-*/%&|^~<>=!?.,:;@(){}[\]])/g;
+
+function TokeniseOcaml(Source: string): Token[] {
+    return TokeniseWithPattern(Source, OcamlPattern, OcamlKeywords);
+}
+
+const FsharpKeywords = new Set([
+    "let", "rec", "in", "fun", "function", "match", "with", "type", "module",
+    "namespace", "open", "if", "then", "else", "elif", "begin", "end", "val",
+    "member", "and", "or", "not", "mutable", "ref", "of", "when", "as", "try",
+    "raise", "exception", "class", "struct", "interface", "inherit", "new",
+    "lazy", "assert", "while", "do", "done", "for", "to", "downto", "true",
+    "false", "yield", "return", "use", "async", "abstract", "override",
+    "static", "internal", "public", "private", "inline", "int", "float",
+    "string", "bool", "list", "array", "option", "Some", "None", "unit",
+    "seq", "default", "delegate", "downcast", "upcast", "rec", "extern",
+]);
+
+const FsharpPattern = /(?<comment>\/\/[^\n]*|\(\*[\s\S]*?\*\))|(?<string>"""[\s\S]*?"""|@"(?:[^"]|"")*"|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)')|(?<number>0x[0-9a-fA-F_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?[uLfm]*)|(?<ident>[A-Za-z_][A-Za-z0-9_']*)|(?<op>[+\-*/%&|^~<>=!?.,:;@(){}[\]])/g;
+
+function TokeniseFsharp(Source: string): Token[] {
+    return TokeniseWithPattern(Source, FsharpPattern, FsharpKeywords);
+}
+
+const ErlangKeywords = new Set([
+    "after", "begin", "case", "catch", "cond", "end", "fun", "if", "let",
+    "of", "receive", "try", "when", "and", "andalso", "or", "orelse", "not",
+    "band", "bor", "bxor", "bnot", "bsl", "bsr", "div", "rem", "xor",
+    "module", "export", "import", "define", "include", "include_lib",
+    "record", "behaviour", "behavior", "spec", "type", "callback", "ifdef",
+    "ifndef", "endif", "undef", "compile", "vsn",
+]);
+
+const ErlangPattern = /(?<comment>%[^\n]*)|(?<string>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\$\\?.)|(?<number>\d+#[0-9a-zA-Z]+|\d+\.?\d*(?:[eE][+-]?\d+)?)|(?<ident>[A-Za-z_][A-Za-z0-9_@]*)|(?<op>[+\-*/<>=!?.,:;(){}[\]|])/g;
+
+function TokeniseErlang(Source: string): Token[] {
+    return TokeniseWithPattern(Source, ErlangPattern, ErlangKeywords);
+}
+
+const LispPattern = /(?<comment>;[^\n]*|#\|[\s\S]*?\|#)|(?<string>"(?:[^"\\]|\\.)*")|(?<number>[+\-]?\d+\.?\d*(?:[eE][+-]?\d+)?)|(?<ident>#[tf]|#\\.|[A-Za-z_+\-*/<>=!?][A-Za-z0-9_+\-*/<>=!?.]*)|(?<op>[(){}\[\]'`,@])/g;
+
+const RacketKeywords = new Set([
+    "define", "lambda", "λ", "let", "let*", "letrec", "let-values", "if",
+    "cond", "case", "when", "unless", "begin", "set!", "quote", "quasiquote",
+    "unquote", "and", "or", "not", "do", "else", "define-syntax",
+    "syntax-rules", "define-struct", "struct", "require", "provide", "module",
+    "for", "for/list", "for/fold", "match", "define-values", "parameterize",
+    "values", "call/cc", "error", "displayln", "printf", "#t", "#f", "null",
+    "cons", "car", "cdr", "list", "map", "filter", "foldl", "foldr",
+    "true", "false",
+]);
+
+function TokeniseRacket(Source: string): Token[] {
+    return TokeniseWithPattern(Source, LispPattern, RacketKeywords);
+}
+
+const SchemeKeywords = new Set([
+    "define", "lambda", "let", "let*", "letrec", "if", "cond", "case", "when",
+    "unless", "begin", "set!", "quote", "quasiquote", "unquote", "and", "or",
+    "not", "do", "else", "define-syntax", "syntax-rules",
+    "call-with-current-continuation", "call/cc", "dynamic-wind", "delay",
+    "force", "values", "error", "display", "newline", "write", "list",
+    "cons", "car", "cdr", "map", "for-each", "apply", "#t", "#f",
+]);
+
+function TokeniseScheme(Source: string): Token[] {
+    return TokeniseWithPattern(Source, LispPattern, SchemeKeywords);
+}
+
+const LispKeywords = new Set([
+    "defun", "defvar", "defparameter", "defconstant", "defmacro", "defclass",
+    "defmethod", "defgeneric", "defstruct", "defpackage", "lambda", "let",
+    "let*", "flet", "labels", "if", "cond", "case", "when", "unless", "progn",
+    "prog1", "setf", "setq", "loop", "do", "dolist", "dotimes", "return",
+    "return-from", "block", "tagbody", "go", "quote", "function", "and", "or",
+    "not", "nil", "t", "car", "cdr", "cons", "list", "mapcar", "format",
+    "in-package", "declaim", "declare", "the", "values", "multiple-value-bind",
+    "handler-case", "funcall", "apply", "lambda",
+]);
+
+function TokeniseLisp(Source: string): Token[] {
+    return TokeniseWithPattern(Source, LispPattern, LispKeywords);
+}
+
+const FortranKeywords = new Set([
+    "program", "end", "subroutine", "function", "module", "use", "implicit",
+    "none", "integer", "real", "double", "precision", "complex", "character",
+    "logical", "dimension", "parameter", "allocatable", "pointer", "target",
+    "intent", "in", "out", "inout", "if", "then", "else", "elseif", "endif",
+    "do", "while", "enddo", "select", "case", "default", "where", "forall",
+    "call", "return", "stop", "continue", "contains", "interface", "type",
+    "class", "public", "private", "save", "common", "data", "goto", "print",
+    "write", "read", "open", "close", "format", "allocate", "deallocate",
+    "nullify", "present", "true", "false", "result", "recursive", "pure",
+    "elemental", "optional", "only", "kind", "len",
+]);
+
+const FortranPattern = /(?<comment>![^\n]*)|(?<string>"(?:[^"]|"")*"|'(?:[^']|'')*')|(?<number>\d+\.?\d*(?:[dDeE][+-]?\d+)?(?:_\w+)?)|(?<ident>[A-Za-z][A-Za-z0-9_]*)|(?<op>[+\-*/%<>=.,:;()[\]])/g;
+
+function TokeniseFortran(Source: string): Token[] {
+    const Raw = TokeniseWithPattern(Source, FortranPattern, new Set<string>());
+    return Raw.map(T => {
+        if (T.Type === "Default" || T.Type === "Function" || T.Type === "Type") {
+            if (FortranKeywords.has(T.Value.toLowerCase())) return { ...T, Type: "Keyword" as TokenType };
+        }
+        return T;
+    });
+}
+
+const CobolKeywords = new Set([
+    "identification", "division", "program-id", "environment",
+    "configuration", "section", "input-output", "file-control", "data",
+    "working-storage", "linkage", "procedure", "pic", "picture", "value",
+    "move", "to", "add", "subtract", "multiply", "divide", "compute",
+    "display", "accept", "perform", "until", "varying", "times", "if",
+    "else", "end-if", "evaluate", "when", "end-evaluate", "go", "stop",
+    "run", "call", "using", "open", "close", "read", "write", "fd", "select",
+    "assign", "occurs", "redefines", "copy", "goback", "exit", "initialize",
+    "string", "unstring", "inspect", "set", "search", "sort", "merge", "by",
+    "giving", "from", "into", "of", "is", "equal", "greater", "less", "than",
+    "not", "and", "or", "zero", "spaces", "comp", "comp-3", "binary",
+    "filler", "with", "no", "advancing", "at", "end",
+]);
+
+const CobolPattern = /(?<comment>\*>[^\n]*)|(?<string>"(?:[^"]|"")*"|'(?:[^']|'')*')|(?<number>[+\-]?\d+\.?\d*)|(?<ident>[A-Za-z][A-Za-z0-9\-]*)|(?<op>[.,;()=<>+\-*/])/g;
+
+function TokeniseCobol(Source: string): Token[] {
+    const Raw = TokeniseWithPattern(Source, CobolPattern, new Set<string>());
+    return Raw.map(T => {
+        if (T.Type === "Default" || T.Type === "Function" || T.Type === "Type") {
+            if (CobolKeywords.has(T.Value.toLowerCase())) return { ...T, Type: "Keyword" as TokenType };
+        }
+        return T;
+    });
+}
+
+const AdaKeywords = new Set([
+    "procedure", "function", "package", "body", "is", "begin", "end",
+    "declare", "if", "then", "else", "elsif", "case", "when", "loop",
+    "while", "for", "in", "out", "exit", "return", "with", "use", "type",
+    "subtype", "record", "array", "of", "range", "new", "access", "constant",
+    "null", "others", "and", "or", "not", "xor", "mod", "rem", "abs",
+    "raise", "exception", "task", "entry", "accept", "select", "delay",
+    "abort", "goto", "pragma", "generic", "private", "limited", "renames",
+    "separate", "true", "false", "all", "do", "terminate", "requeue",
+    "protected", "overriding", "aliased", "synchronized", "interface",
+    "tagged", "abstract", "reverse", "delta", "digits", "at",
+]);
+
+const AdaPattern = /(?<comment>--[^\n]*)|(?<string>"(?:[^"]|"")*"|'(?:[^'\\]|\\.)')|(?<number>\d+#[0-9a-fA-F_]+#|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?)|(?<ident>[A-Za-z][A-Za-z0-9_]*)|(?<op>[+\-*/<>=.,:;()|&])/g;
+
+function TokeniseAda(Source: string): Token[] {
+    const Raw = TokeniseWithPattern(Source, AdaPattern, new Set<string>());
+    return Raw.map(T => {
+        if (T.Type === "Default" || T.Type === "Function" || T.Type === "Type") {
+            if (AdaKeywords.has(T.Value.toLowerCase())) return { ...T, Type: "Keyword" as TokenType };
+        }
+        return T;
+    });
+}
+
+const CrystalKeywords = new Set([
+    "def", "end", "class", "module", "struct", "enum", "if", "elsif", "else",
+    "unless", "case", "when", "while", "until", "for", "in", "do", "begin",
+    "rescue", "ensure", "raise", "return", "yield", "break", "next",
+    "require", "include", "extend", "property", "getter", "setter", "true",
+    "false", "nil", "self", "super", "abstract", "private", "protected",
+    "macro", "lib", "fun", "type", "alias", "of", "as", "uninitialized",
+    "with", "out", "pointerof", "sizeof", "typeof", "Int32", "Int64",
+    "String", "Bool", "Float64", "Array", "Hash", "Nil", "Char", "Symbol",
+]);
+
+function TokeniseCrystal(Source: string): Token[] {
+    return TokeniseWithPattern(Source, RubyPattern, CrystalKeywords);
+}
+
+const JuliaKeywords = new Set([
+    "function", "end", "if", "elseif", "else", "while", "for", "in", "do",
+    "begin", "let", "return", "break", "continue", "struct", "mutable",
+    "abstract", "primitive", "type", "module", "baremodule", "using",
+    "import", "export", "const", "global", "local", "macro", "quote", "try",
+    "catch", "finally", "throw", "where", "true", "false", "nothing",
+    "missing", "and", "or", "isa", "new", "Int", "Int64", "Float64", "String",
+    "Bool", "Vector", "Matrix", "Array", "Dict", "Symbol", "Char",
+]);
+
+const JuliaPattern = /(?<comment>#=[\s\S]*?=#|#[^\n]*)|(?<string>"""[\s\S]*?"""|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)')|(?<number>0x[0-9a-fA-F_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?(?:im)?)|(?<ident>@[A-Za-z_][A-Za-z0-9_!]*|[A-Za-z_][A-Za-z0-9_!]*)|(?<op>[+\-*/%&|^~<>=!?.,:;(){}[\]])/g;
+
+function TokeniseJulia(Source: string): Token[] {
+    return TokeniseWithPattern(Source, JuliaPattern, JuliaKeywords);
+}
+
+// --- Easter-egg esolangs: small, mostly-dead, but fun to see lit up. ---
+
+function TokeniseBrainfuck(Source: string): Token[] {
+    const Result: Token[] = [];
+    const Pattern = /(?<loop>[\[\]])|(?<io>[.,])|(?<cmd>[+\-<>])|(?<other>[^+\-<>.,\[\]]+)/g;
+    let M: RegExpExecArray | null;
+    while ((M = Pattern.exec(Source)) !== null) {
+        const G = M.groups ?? {};
+        if (G.loop !== undefined)      Result.push({ Type: "Keyword",  Value: M[0] });
+        else if (G.io !== undefined)   Result.push({ Type: "Function", Value: M[0] });
+        else if (G.cmd !== undefined)  Result.push({ Type: "Operator", Value: M[0] });
+        else                           Result.push({ Type: "Comment",  Value: M[0] });
+    }
+    return Result;
+}
+
+function TokeniseWhitespace(Source: string): Token[] {
+    const Result: Token[] = [];
+    const Pattern = /(?<code>[ \t]+)|(?<nl>\n)|(?<comment>[^ \t\n]+)/g;
+    let M: RegExpExecArray | null;
+    while ((M = Pattern.exec(Source)) !== null) {
+        const G = M.groups ?? {};
+        if (G.code !== undefined)     Result.push({ Type: "Operator", Value: M[0] });
+        else if (G.nl !== undefined)  Result.push({ Type: "Keyword",  Value: M[0] });
+        else                          Result.push({ Type: "Comment",  Value: M[0] });
+    }
+    return Result;
+}
+
+function TokeniseBefunge(Source: string): Token[] {
+    const Result: Token[] = [];
+    const Pattern = /(?<string>"[^"]*")|(?<number>\d)|(?<flow>[><^v?@_|#])|(?<op>[+\-*/%!`:\\$.,&~gp{}])|(?<other>[^"0-9><\^v?@_|#+\-*/%!`:\\$.,&~gp{}]+)/g;
+    let M: RegExpExecArray | null;
+    while ((M = Pattern.exec(Source)) !== null) {
+        const G = M.groups ?? {};
+        if (G.string !== undefined)      Result.push({ Type: "String",   Value: M[0] });
+        else if (G.number !== undefined) Result.push({ Type: "Number",   Value: M[0] });
+        else if (G.flow !== undefined)   Result.push({ Type: "Keyword",  Value: M[0] });
+        else if (G.op !== undefined)     Result.push({ Type: "Operator", Value: M[0] });
+        else                             Result.push({ Type: "Default",  Value: M[0] });
+    }
+    return Result;
+}
+
+const LolcodeKeywords = new Set([
+    "HAI", "KTHXBYE", "VISIBLE", "GIMMEH", "ITZ", "HAS", "A", "I", "R", "AN",
+    "SUM", "OF", "DIFF", "PRODUKT", "QUOSHUNT", "MOD", "BIGGR", "SMALLR",
+    "BOTH", "EITHER", "WON", "NOT", "SAEM", "DIFFRINT", "MAEK", "IS", "NOW",
+    "O", "RLY", "YA", "NO", "WAI", "MEBBE", "OIC", "WTF", "OMG", "OMGWTF",
+    "IM", "IN", "YR", "OUTTA", "UPPIN", "NERFIN", "TIL", "WILE", "HOW", "IZ",
+    "FOUND", "MKAY", "GTFO", "NOOB", "WIN", "FAIL", "TROOF", "NUMBR",
+    "NUMBAR", "YARN", "BUKKIT", "SMOOSH", "U", "SAY", "SO", "IF", "ALL", "ANY",
+]);
+
+const LolcodePattern = /(?<comment>OBTW[\s\S]*?TLDR|BTW\b[^\n]*)|(?<string>"[^"]*")|(?<number>-?\d+\.?\d*)|(?<ident>[A-Za-z_][A-Za-z0-9_]*)|(?<op>[!?,])/g;
+
+function TokeniseLolcode(Source: string): Token[] {
+    return TokeniseWithPattern(Source, LolcodePattern, LolcodeKeywords);
+}
+
+const ChefVerbs = new Set([
+    "take", "put", "fold", "add", "remove", "combine", "divide", "liquefy",
+    "liquify", "stir", "mix", "clean", "pour", "refrigerate", "serve",
+    "serves", "ingredients", "method", "recipe", "until", "heat", "cook",
+    "bake", "set", "aside", "from", "into", "the", "to", "with", "for",
+]);
+
+const ChefMeasures = new Set([
+    "g", "kg", "pinch", "pinches", "ml", "l", "dash", "dashes", "cup",
+    "cups", "teaspoon", "teaspoons", "tablespoon", "tablespoons", "heaped",
+    "level", "minutes", "hours",
+]);
+
+const ChefPattern = /(?<number>\d+)|(?<ident>[A-Za-z][A-Za-z'\-]*)|(?<op>[.,;:()])/g;
+
+function TokeniseChef(Source: string): Token[] {
+    const Raw = TokeniseWithPattern(Source, ChefPattern, new Set<string>());
+    return Raw.map(T => {
+        if (T.Type === "Default" || T.Type === "Function" || T.Type === "Type") {
+            const Low = T.Value.toLowerCase();
+            if (ChefVerbs.has(Low))    return { ...T, Type: "Keyword" as TokenType };
+            if (ChefMeasures.has(Low)) return { ...T, Type: "Type" as TokenType };
+        }
+        return T;
+    });
+}
+
 function TokenisePlain(Source: string): Token[] {
     return [{ Type: "Default", Value: Source }];
 }
@@ -663,6 +1309,42 @@ export function Tokenize(Source: string, Language: string): Token[] {
         case "csharp":     return TokeniseCsharp(Source);
         case "java":       return TokeniseJava(Source);
         case "xml":        return TokeniseXml(Source);
+        case "kotlin":     return TokeniseKotlin(Source);
+        case "swift":      return TokeniseSwift(Source);
+        case "dart":       return TokeniseDart(Source);
+        case "scala":      return TokeniseScala(Source);
+        case "hlsl":       return TokeniseHlsl(Source);
+        case "zig":        return TokeniseZig(Source);
+        case "ruby":       return TokeniseRuby(Source);
+        case "php":        return TokenisePhp(Source);
+        case "elixir":     return TokeniseElixir(Source);
+        case "haskell":    return TokeniseHaskell(Source);
+        case "graphql":    return TokeniseGraphql(Source);
+        case "dockerfile": return TokeniseDockerfile(Source);
+        case "makefile":   return TokeniseMakefile(Source);
+        case "nim":        return TokeniseNim(Source);
+        case "vlang":      return TokeniseV(Source);
+        case "red":        return TokeniseRed(Source);
+        case "j":          return TokeniseJ(Source);
+        case "apl":        return TokeniseApl(Source);
+        case "factor":     return TokeniseFactor(Source);
+        case "idris":      return TokeniseIdris(Source);
+        case "ocaml":      return TokeniseOcaml(Source);
+        case "fsharp":     return TokeniseFsharp(Source);
+        case "erlang":     return TokeniseErlang(Source);
+        case "racket":     return TokeniseRacket(Source);
+        case "scheme":     return TokeniseScheme(Source);
+        case "lisp":       return TokeniseLisp(Source);
+        case "fortran":    return TokeniseFortran(Source);
+        case "cobol":      return TokeniseCobol(Source);
+        case "ada":        return TokeniseAda(Source);
+        case "crystal":    return TokeniseCrystal(Source);
+        case "julia":      return TokeniseJulia(Source);
+        case "brainfuck":  return TokeniseBrainfuck(Source);
+        case "whitespace": return TokeniseWhitespace(Source);
+        case "lolcode":    return TokeniseLolcode(Source);
+        case "befunge":    return TokeniseBefunge(Source);
+        case "chef":       return TokeniseChef(Source);
         default:           return TokenisePlain(Source);
     }
 }

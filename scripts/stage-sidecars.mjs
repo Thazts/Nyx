@@ -1,8 +1,3 @@
-/**
- * stage-sidecars.mjs
- * Compiles nyx-keyman and NyxCli binaries and stages them as Tauri sidecars.
- */
-
 import { execSync } from "child_process";
 import { mkdirSync, copyFileSync, writeFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -25,12 +20,14 @@ const BINARIES = [
     sidecarName: `NyxCli-${TARGET}.exe`,
     src: "NyxCli.exe",
   },
+  {
+    sidecarName: `Charon-${TARGET}.exe`,
+    src: "Charon.exe",
+  },
 ];
 
-// 1. Ensure extra-bin directory exists
 mkdirSync(extraBinDir, { recursive: true });
 
-// 2. Create placeholder sidecar files so tauri-build validation passes
 for (const { sidecarName } of BINARIES) {
   const destPath = resolve(extraBinDir, sidecarName);
 
@@ -40,15 +37,13 @@ for (const { sidecarName } of BINARIES) {
   }
 }
 
-// 3. Compile the sidecar binaries
 console.log("⚙  Compiling sidecar binaries…");
 
-execSync("cargo build --release --bin nyx-keyman --bin NyxCli", {
+execSync("cargo build --release --bin nyx-keyman --bin NyxCli --bin Charon", {
   cwd: tauriDir,
   stdio: "inherit",
 });
 
-// 4. Copy compiled binaries over the placeholders
 for (const { sidecarName, src } of BINARIES) {
   const srcPath = resolve(releaseDir, src);
   const destPath = resolve(extraBinDir, sidecarName);

@@ -1,6 +1,7 @@
 use tauri::{AppHandle, State};
 
 use super::RendererState;
+use crate::renderer::ownership::ApplyOwnershipMerge;
 use crate::renderer::{window as nyx_window, SelectedFace};
 use crate::state::AppState;
 
@@ -817,15 +818,17 @@ pub fn renderer_load_scene(
 pub(crate) fn ApplyLiveScene(
     renderer: &RendererState,
     app_state: &AppState,
-    commands: Vec<serde_json::Value>,
+    mut commands: Vec<serde_json::Value>,
     profile: &str,
 ) -> Result<bool, String> {
     {
         let r = renderer.lock().map_err(|e| e.to_string())?;
         let mut s = r.state.lock().map_err(|e| e.to_string())?;
-        if s.last_edit_interaction.elapsed() < std::time::Duration::from_millis(140) {
-            return Ok(false);
-        }
+        // No global edit gate: the scene clock and every other part keep running
+        // while the user manipulates one part. Conflicts are resolved per-part by
+        // the ownership merge below — held parts are pinned, released parts ease
+        // back, and a no-op while nothing is owned (the common case).
+        ApplyOwnershipMerge(&mut commands, &mut s.ownership, std::time::Instant::now());
         let mut physics = std::mem::take(&mut s.physics);
         physics.Reconcile(&commands, profile);
         s.commands = commands.clone();
@@ -1327,6 +1330,29 @@ pub fn renderer_delete_part(id: String, renderer: State<'_, RendererState>) -> R
     physics.Reconcile(&s.commands, &profile);
     s.physics = physics;
     s.dirty = true;
+    Ok(())
+}
+
+/// Hand a user-owned ("Kept") part back to the script: it eases from where the
+/// user left it onto the script's current path so it resumes its previous
+/// movement, then ownership is released. No-op if the part is not kept.
+#[tauri::command]
+pub fn renderer_return_to_script(
+    id: String,
+    app: AppHandle,
+    renderer: State<'_, RendererState>,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let kept = {
+        let r = renderer.lock().map_err(|e| e.to_string())?;
+        let mut s = r.state.lock().map_err(|e| e.to_string())?;
+        if let Some(owned) = s.ownership.get_mut(&id) {
+            owned.resume(std::time::Instant::now());
+            s.dirty = true;
+        }
+        crate::renderer::ownership::KeptIds(&s.ownership)
+    };
+    let _ = app.emit_all("vp-ownership", kept);
     Ok(())
 }
 

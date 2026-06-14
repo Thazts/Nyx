@@ -1,4 +1,6 @@
-use mlua::{Lua, MultiValue as LuaMultiValue, Table as LuaTable, Value as LuaValue};
+use mlua::{
+    Lua, LuaOptions, MultiValue as LuaMultiValue, StdLib, Table as LuaTable, Value as LuaValue,
+};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,6 +14,7 @@ use super::RendererState;
 const ROBLOX_SHIM: &str = include_str!("../../nyx_runtime/roblox/init.lua");
 const UNITY_SHIM: &str = include_str!("../../nyx_runtime/unity/init.cs");
 const UNREAL_SHIM: &str = include_str!("../../nyx_runtime/unreal/init.cpp");
+const NATIVE_SCENE_OPT_IN: &str = "@nyx-allow-native-scene";
 
 static DOTNET_AVAILABLE: OnceLock<bool> = OnceLock::new();
 static CPP_COMPILER_CMD: OnceLock<Option<&'static str>> = OnceLock::new();
@@ -27,11 +30,52 @@ pub struct RunSceneResult {
     pub skipped: bool,
 }
 
+fn WorkspaceRoot(app_state: &State<'_, crate::state::AppState>) -> Result<PathBuf, String> {
+    let workspace = app_state
+        .workspace_path
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or("No workspace selected")?;
+    let root = fs::canonicalize(&workspace).map_err(|e| format!("Invalid workspace: {e}"))?;
+    if !root.is_dir() {
+        return Err("Workspace is not a directory".to_string());
+    }
+    Ok(root)
+}
+
+fn ResolveWorkspacePath(
+    path: &str,
+    app_state: &State<'_, crate::state::AppState>,
+) -> Result<PathBuf, String> {
+    let root = WorkspaceRoot(app_state)?;
+    let raw = Path::new(path);
+    let candidate = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        root.join(raw)
+    };
+    let canonical = fs::canonicalize(&candidate).map_err(|e| format!("Path not found: {e}"))?;
+    if !canonical.starts_with(&root) {
+        return Err("Path is outside the selected workspace".to_string());
+    }
+    Ok(canonical)
+}
+
 #[tauri::command]
 pub fn run_file(path: String, app_state: State<'_, crate::state::AppState>) -> Vec<String> {
     if let Ok(mut is_running) = app_state.is_running.lock() {
         *is_running = true;
     }
+    let path = match ResolveWorkspacePath(&path, &app_state) {
+        Ok(path) => path.to_string_lossy().to_string(),
+        Err(e) => {
+            if let Ok(mut is_running) = app_state.is_running.lock() {
+                *is_running = false;
+            }
+            return vec![format!("err: {}", e)];
+        }
+    };
     let ext = std::path::Path::new(&path)
         .extension()
         .and_then(|e| e.to_str())
@@ -65,7 +109,16 @@ fn RunLuaEmbedded(path: &str) -> Vec<String> {
         }
     };
 
-    let lua = Lua::new();
+    let lua = match NewSceneLua() {
+        Ok(lua) => lua,
+        Err(e) => {
+            return vec![
+                format!("\u{25b6} {}", path),
+                format!("err: lua runtime: {}", e),
+                "exit 1".to_string(),
+            ]
+        }
+    };
     let lines = Arc::new(Mutex::new(vec![format!("\u{25b6} {}", path)]));
     let sink = Arc::clone(&lines);
 
@@ -121,13 +174,16 @@ fn RunSubprocess(program: &str, path: &str) -> Vec<String> {
 }
 
 #[tauri::command]
-pub fn run_scene(path: String, profile: String) -> Result<RunSceneResult, String> {
-    RunSceneAtTime(path, profile, None)
+pub fn run_scene(
+    path: String,
+    profile: String,
+    app_state: State<'_, crate::state::AppState>,
+) -> Result<RunSceneResult, String> {
+    let path = ResolveWorkspacePath(&path, &app_state)?;
+    RunSceneAtTime(path.to_string_lossy().to_string(), profile, None)
 }
 
-
 const LIVE_TICK_FPS: f32 = 60.0;
-const LIVE_EDIT_GATE: std::time::Duration = std::time::Duration::from_millis(140);
 
 pub struct LiveSession {
     path: String,
@@ -143,13 +199,19 @@ pub fn start_live_scene(
     profile: String,
     app: tauri::AppHandle,
     live: State<'_, LiveSceneState>,
+    app_state: State<'_, crate::state::AppState>,
 ) -> Result<(), String> {
+    let path = ResolveWorkspacePath(&path, &app_state)?
+        .to_string_lossy()
+        .to_string();
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let ThreadStop = Arc::clone(&stop);
     let ThreadPath = path.clone();
     let mut guard = live.0.lock().map_err(|e| e.to_string())?;
     if let Some(Previous) = guard.take() {
-        Previous.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        Previous
+            .stop
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
     std::thread::Builder::new()
         .name("nyx-live-scene".into())
@@ -160,7 +222,10 @@ pub fn start_live_scene(
 }
 
 #[tauri::command]
-pub fn stop_live_scene(path: Option<String>, live: State<'_, LiveSceneState>) -> Result<(), String> {
+pub fn stop_live_scene(
+    path: Option<String>,
+    live: State<'_, LiveSceneState>,
+) -> Result<(), String> {
     let mut guard = live.0.lock().map_err(|e| e.to_string())?;
     let Owns = match (&path, guard.as_ref()) {
         (Some(P), Some(Session)) => Session.path == *P,
@@ -169,7 +234,9 @@ pub fn stop_live_scene(path: Option<String>, live: State<'_, LiveSceneState>) ->
     };
     if Owns {
         if let Some(Session) = guard.take() {
-            Session.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            Session
+                .stop
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
     Ok(())
@@ -189,15 +256,16 @@ fn LiveSceneLoop(
 
     while !stop.load(Ordering::Relaxed) {
         let TickStart = std::time::Instant::now();
+        // Only pause the live loop when the viewport is hidden. Editing no longer
+        // freezes the scene — per-part ownership keeps the user's manipulation and
+        // the script's animation from fighting (see renderer::ownership).
         let Paused = {
             let renderer = app.state::<RendererState>();
-            let Held = renderer.lock().ok().and_then(|r| {
-                r.state
-                    .lock()
-                    .ok()
-                    .map(|s| !s.visible || s.last_edit_interaction.elapsed() < LIVE_EDIT_GATE)
-            });
-            Held.unwrap_or(true)
+            let Visible = renderer
+                .lock()
+                .ok()
+                .and_then(|r| r.state.lock().ok().map(|s| s.visible));
+            !Visible.unwrap_or(false)
         };
         if Paused {
             std::thread::sleep(std::time::Duration::from_millis(30));
@@ -237,16 +305,87 @@ fn RunSceneAtTime(
 
     match profile.as_str() {
         "roblox" => RunLuaSceneAtTime(&path, &UserCode, elapsed),
-        "unity" => TryRunCSharpScene(&path, &UserCode, elapsed).or_else(|e| {
-            RunEmbeddedSceneCommands(&path, &UserCode, "Unity C# shim", UNITY_SHIM)
-                .map_err(|je| format!("{e}\nFallback (@nyx-scene): {je}"))
-        }),
-        "unreal" => TryRunCppScene(&path, &UserCode, elapsed).or_else(|e| {
-            RunEmbeddedSceneCommands(&path, &UserCode, "Unreal C++ shim", UNREAL_SHIM)
-                .map_err(|je| format!("{e}\nFallback (@nyx-scene): {je}"))
-        }),
+        "unity" => RunNativeSceneIfAllowed(
+            &path,
+            &UserCode,
+            elapsed,
+            "Unity C#",
+            UNITY_SHIM,
+            TryRunCSharpScene,
+        ),
+        "unreal" => RunNativeSceneIfAllowed(
+            &path,
+            &UserCode,
+            elapsed,
+            "Unreal C++",
+            UNREAL_SHIM,
+            TryRunCppScene,
+        ),
         other => Err(format!("Unknown engine profile: '{}'", other)),
     }
+}
+
+fn RunNativeSceneIfAllowed(
+    path: &str,
+    UserCode: &str,
+    elapsed: Option<f64>,
+    label: &str,
+    shim_source: &str,
+    runner: fn(&str, &str, Option<f64>) -> Result<RunSceneResult, String>,
+) -> Result<RunSceneResult, String> {
+    if UserCode.contains(NATIVE_SCENE_OPT_IN) {
+        return runner(path, UserCode, elapsed).or_else(|e| {
+            RunEmbeddedSceneCommands(path, UserCode, &format!("{label} shim"), shim_source)
+                .map_err(|je| format!("{e}\nFallback (@nyx-scene): {je}"))
+        });
+    }
+
+    RunEmbeddedSceneCommands(path, UserCode, &format!("{label} shim"), shim_source).or_else(|e| {
+        Err(format!(
+            "{label} scene preview did not execute native code. \
+Add a @nyx-scene JSON command block for safe preview data, or add {NATIVE_SCENE_OPT_IN} \
+if you intentionally want Nyx to compile and run this file locally.\nFallback (@nyx-scene): {e}"
+        ))
+    })
+}
+
+fn NewSceneLua() -> Result<Lua, String> {
+    let libs = StdLib::COROUTINE | StdLib::TABLE | StdLib::STRING | StdLib::UTF8 | StdLib::MATH;
+    let lua = Lua::new_with(libs, LuaOptions::default()).map_err(|e| e.to_string())?;
+    InstallSafeOs(&lua)?;
+    let globals = lua.globals();
+    globals
+        .set("io", LuaValue::Nil)
+        .map_err(|e| e.to_string())?;
+    globals
+        .set("package", LuaValue::Nil)
+        .map_err(|e| e.to_string())?;
+    globals
+        .set("debug", LuaValue::Nil)
+        .map_err(|e| e.to_string())?;
+    Ok(lua)
+}
+
+fn InstallSafeOs(lua: &Lua) -> Result<(), String> {
+    let os = lua.create_table().map_err(|e| e.to_string())?;
+    os.set(
+        "clock",
+        lua.create_function(|_, ()| Ok(std::time::Instant::now().elapsed().as_secs_f64()))
+            .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    os.set(
+        "time",
+        lua.create_function(|_, ()| {
+            Ok(std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0))
+        })
+        .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    lua.globals().set("os", os).map_err(|e| e.to_string())
 }
 
 fn RunLuaSceneAtTime(
@@ -254,7 +393,7 @@ fn RunLuaSceneAtTime(
     UserCode: &str,
     elapsed: Option<f64>,
 ) -> Result<RunSceneResult, String> {
-    let lua = Lua::new();
+    let lua = NewSceneLua()?;
     let captured = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = Arc::clone(&captured);
 
@@ -443,18 +582,28 @@ fn CompileCSharp(UserCode: &str, hash: u64) -> Result<PathBuf, String> {
     std::fs::write(BuildDir.join("NyxShim.cs"), UNITY_SHIM)
         .map_err(|e| format!("write shim: {e}"))?;
 
-    let SceneCs = format!(
-        "using UnityEngine;\n\
-         double __elapsed = args.Length > 0\n\
-             ? double.Parse(args[0], \
-               System.Globalization.CultureInfo.InvariantCulture)\n\
-             : 0.0;\n\
-         {}\n\
-         Console.Write(NyxRuntime.CommandsToJson());\n",
-        UserCode
-    );
-    std::fs::write(BuildDir.join("NyxScene.cs"), &SceneCs)
-        .map_err(|e| format!("write scene: {e}"))?;
+    if LooksLikeCSharpTypeScene(UserCode) {
+        std::fs::write(BuildDir.join("NyxUserScene.cs"), UserCode)
+            .map_err(|e| format!("write user scene: {e}"))?;
+        std::fs::write(BuildDir.join("NyxSceneHost.cs"), CSharpSceneHost())
+            .map_err(|e| format!("write scene host: {e}"))?;
+    } else {
+        let (Usings, Body) = SplitLeadingCSharpUsings(UserCode);
+        let SceneCs = format!(
+            "using UnityEngine;\n\
+             using System.Globalization;\n\
+             {Usings}\n\
+             double __elapsed = args.Length > 0\n\
+                 ? double.Parse(args[0], CultureInfo.InvariantCulture)\n\
+                 : 0.0;\n\
+             Time.TimeSinceStartup = (float)__elapsed;\n\
+             Time.DeltaTime = Time.FixedDeltaTime;\n\
+             {Body}\n\
+             System.Console.Write(NyxRuntime.CommandsToJson());\n"
+        );
+        std::fs::write(BuildDir.join("NyxScene.cs"), &SceneCs)
+            .map_err(|e| format!("write scene: {e}"))?;
+    }
 
     std::fs::write(
         BuildDir.join("NyxScene.csproj"),
@@ -554,20 +703,25 @@ fn CompileCpp(UserCode: &str, hash: u64, compiler: &str) -> Result<PathBuf, Stri
         "NyxScene"
     };
     let ExePath = BuildDir.join(ExeName);
+    std::fs::write(
+        BuildDir.join("NyxUnrealRuntime.h"),
+        format!("#pragma once\n{}", UNREAL_SHIM),
+    )
+    .map_err(|e| format!("write unreal shim header: {e}"))?;
+    let EntryCall = CppSceneEntryCall(UserCode).unwrap_or_default();
     let FullCpp = format!(
         "#include <iostream>\n\
+         #include \"NyxUnrealRuntime.h\"\n\
          {}\n\
-         static void __NyxScene__(double __elapsed, NyxUnreal::UWorld& World) {{\n\
-         {}\n\
-         }}\n\
          int main(int argc, char** argv) {{\n\
              double __elapsed = argc > 1 ? std::stod(argv[1]) : 0.0;\n\
              NyxUnreal::UWorld World;\n\
-             __NyxScene__(__elapsed, World);\n\
+             (void)__elapsed;\n\
+             {}\n\
              std::cout << World.CommandsToJson() << std::flush;\n\
              return 0;\n\
          }}\n",
-        UNREAL_SHIM, UserCode
+        UserCode, EntryCall
     );
 
     let SrcPath = BuildDir.join("NyxScene.cpp");
@@ -611,6 +765,146 @@ fn CompileCpp(UserCode: &str, hash: u64, compiler: &str) -> Result<PathBuf, Stri
         return Ok(ExePath);
     }
     Err(format!("C++ compile: no output at {}", ExePath.display()))
+}
+
+fn LooksLikeCSharpTypeScene(UserCode: &str) -> bool {
+    [
+        "class ",
+        "struct ",
+        "record ",
+        "interface ",
+        "enum ",
+        "namespace ",
+    ]
+    .iter()
+    .any(|Token| UserCode.contains(Token))
+}
+
+fn SplitLeadingCSharpUsings(UserCode: &str) -> (String, String) {
+    let mut Usings = Vec::new();
+    let mut Body = Vec::new();
+    let mut InUsings = true;
+    for Line in UserCode.lines() {
+        let Trimmed = Line.trim_start();
+        if InUsings && (Trimmed.is_empty() || Trimmed.starts_with("using ")) {
+            Usings.push(Line);
+        } else {
+            InUsings = false;
+            Body.push(Line);
+        }
+    }
+    (Usings.join("\n"), Body.join("\n"))
+}
+
+fn CSharpSceneHost() -> &'static str {
+    r#"using System;
+using System.Globalization;
+using System.Reflection;
+using UnityEngine;
+
+public static class NyxSceneHost
+{
+    public static int Main(string[] args)
+    {
+        double elapsed = args.Length > 0
+            ? double.Parse(args[0], CultureInfo.InvariantCulture)
+            : 0.0;
+        Time.TimeSinceStartup = (float)elapsed;
+        Time.DeltaTime = Time.FixedDeltaTime;
+        InvokeSceneAssembly(elapsed);
+        Console.Write(NyxRuntime.CommandsToJson());
+        return 0;
+    }
+
+    private static void InvokeSceneAssembly(double elapsed)
+    {
+        foreach (var type in Assembly.GetExecutingAssembly().GetTypes())
+        {
+            if (type == typeof(NyxSceneHost) || type.Namespace == "UnityEngine")
+            {
+                continue;
+            }
+
+            if (!HasSceneMethod(type))
+            {
+                continue;
+            }
+
+            object instance = null;
+            foreach (var name in new[] { "Awake", "Start", "BuildScene", "BuildNyxScene", "Run" })
+            {
+                InvokeNamed(type, ref instance, name, elapsed);
+            }
+            if (elapsed > 0.0)
+            {
+                InvokeNamed(type, ref instance, "FixedUpdate", elapsed);
+                InvokeNamed(type, ref instance, "Update", elapsed);
+            }
+        }
+    }
+
+    private static bool HasSceneMethod(Type type)
+    {
+        foreach (var name in new[] { "Awake", "Start", "BuildScene", "BuildNyxScene", "Run", "FixedUpdate", "Update" })
+        {
+            if (type.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) != null)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void InvokeNamed(Type type, ref object instance, string name, double elapsed)
+    {
+        var method = type.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+        if (method == null || method.ContainsGenericParameters)
+        {
+            return;
+        }
+
+        object target = null;
+        if (!method.IsStatic)
+        {
+            if (type.IsAbstract || type.ContainsGenericParameters)
+            {
+                return;
+            }
+            instance ??= Activator.CreateInstance(type);
+            target = instance;
+        }
+
+        var parameters = method.GetParameters();
+        if (parameters.Length == 0)
+        {
+            method.Invoke(target, null);
+        }
+        else if (parameters.Length == 1 && parameters[0].ParameterType == typeof(float))
+        {
+            method.Invoke(target, new object[] { (float)elapsed });
+        }
+        else if (parameters.Length == 1 && parameters[0].ParameterType == typeof(double))
+        {
+            method.Invoke(target, new object[] { elapsed });
+        }
+    }
+}
+"#
+}
+
+fn CppSceneEntryCall(UserCode: &str) -> Option<String> {
+    for Name in [
+        "BuildNyxUnrealObjectTest",
+        "BuildNyxUnrealScene",
+        "BuildNyxScene",
+        "BuildScene",
+        "CreateScene",
+    ] {
+        if UserCode.contains(&format!("{Name}(")) {
+            return Some(format!("{Name}(World);"));
+        }
+    }
+    None
 }
 
 fn RunCompiledScene(
@@ -804,7 +1098,13 @@ fn LuaDisplay(v: &LuaValue) -> String {
 }
 
 #[tauri::command]
-pub fn load_model_file(path: String) -> Result<RunSceneResult, String> {
+pub fn load_model_file(
+    path: String,
+    app_state: State<'_, crate::state::AppState>,
+) -> Result<RunSceneResult, String> {
+    let path = ResolveWorkspacePath(&path, &app_state)?
+        .to_string_lossy()
+        .to_string();
     let ext = std::path::Path::new(&path)
         .extension()
         .and_then(|e| e.to_str())
@@ -2174,6 +2474,35 @@ mod tests {
                 Command.get("Cmd").and_then(|Value| Value.as_str()) == Some("AddMesh")
             })
             .count()
+    }
+
+    #[test]
+    fn CSharpClassScenesUseReflectionHostPath() {
+        assert!(LooksLikeCSharpTypeScene(
+            "using UnityEngine;\npublic sealed class Demo { public void Start() {} }"
+        ));
+        assert!(!LooksLikeCSharpTypeScene(
+            "var Cube = GameObject.CreatePrimitive(PrimitiveType.Cube);"
+        ));
+    }
+
+    #[test]
+    fn CSharpTopLevelUsingsStayBeforeGeneratedStatements() {
+        let (Usings, Body) = SplitLeadingCSharpUsings(
+            "using UnityEngine;\nusing System;\n\nvar Cube = GameObject.CreatePrimitive(PrimitiveType.Cube);",
+        );
+        assert!(Usings.contains("using UnityEngine;"));
+        assert!(Usings.contains("using System;"));
+        assert!(Body.starts_with("var Cube"));
+    }
+
+    #[test]
+    fn CppSceneBuilderNamesAreHookedToGeneratedWorld() {
+        assert_eq!(
+            CppSceneEntryCall("void BuildNyxScene(NyxUnreal::UWorld& World) {}").as_deref(),
+            Some("BuildNyxScene(World);")
+        );
+        assert_eq!(CppSceneEntryCall("void Helper() {}"), None);
     }
 
     #[test]

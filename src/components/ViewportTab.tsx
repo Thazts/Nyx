@@ -58,6 +58,12 @@ export const ViewportTab: React.FC = () => {
         return () => { unlisten.then(f => f()); };
     }, []);
     useEffect(() => {
+        const unlisten = listen<string[] | null>("vp-ownership", (event) => {
+            StateService.Set({ Key: "OwnedParts", Value: event.payload ?? [] });
+        });
+        return () => { unlisten.then(f => f()); };
+    }, []);
+    useEffect(() => {
         const OnKeyDown = (E: KeyboardEvent) => {
             const Tag = (document.activeElement as HTMLElement)?.tagName;
             if (Tag === "TEXTAREA" || Tag === "INPUT") return;
@@ -71,6 +77,16 @@ export const ViewportTab: React.FC = () => {
             if (k === "e") SetMode("rotate");
             if (k === "r") SetMode("scale");
             if (k === "f") RendererService.FrameSelected().catch(() => {});
+
+            // Hand a user-owned (Kept) part back to the script so it resumes its
+            // previous movement. Only acts when the selected part is actually owned.
+            if (k === "c") {
+                const PartId = StateService.Get<string | null>({ Key: "SelectedPartId" });
+                const Owned = StateService.Get<string[]>({ Key: "OwnedParts" }) ?? [];
+                if (PartId && Owned.includes(PartId)) {
+                    RendererService.ReturnToScript({ Id: PartId }).catch(() => {});
+                }
+            }
 
             if (k === "delete" || k === "backspace") {
                 const PartId = StateService.Get<string | null>({ Key: "SelectedPartId" });

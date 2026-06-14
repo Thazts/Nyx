@@ -1,13 +1,17 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub mod camera;
 pub mod gizmo;
 pub mod mesh;
+pub mod ownership;
 pub mod physics;
 pub mod pipeline;
 pub mod scene;
 pub mod window;
+
+use ownership::PartOwnership;
 
 use camera::OrbitalCamera;
 use scene::SceneRenderer;
@@ -45,6 +49,7 @@ pub struct SceneState {
     pub drag_undo_pushed: bool,
     pub skip_camera_meta: bool,
     pub last_edit_interaction: Instant,
+    pub ownership: HashMap<String, PartOwnership>,
 }
 
 impl Default for SceneState {
@@ -63,6 +68,7 @@ impl Default for SceneState {
             drag_undo_pushed: false,
             skip_camera_meta: false,
             last_edit_interaction: Instant::now() - std::time::Duration::from_secs(60),
+            ownership: HashMap::new(),
         }
     }
 }
@@ -248,16 +254,15 @@ fn RenderLoop(hwnd: isize, state: Arc<Mutex<SceneState>>, CameraInput: Arc<Mutex
                         s.camera = camera.clone();
                     }
                 }
-                let uniform = camera.ToUniform([
-                    SkyLinear.r as f32,
-                    SkyLinear.g as f32,
-                    SkyLinear.b as f32,
-                ]);
+                let uniform =
+                    camera.ToUniform([SkyLinear.r as f32, SkyLinear.g as f32, SkyLinear.b as f32]);
                 SceneRenderer.UpdateCamera(&render.queue, &uniform);
                 SceneRenderer.render(&render.surface.0, &render.device, &render.queue, SkyLinear);
-                std::thread::sleep(FrameBudget.saturating_sub(now.elapsed()).max(
-                    std::time::Duration::from_millis(1),
-                ));
+                std::thread::sleep(
+                    FrameBudget
+                        .saturating_sub(now.elapsed())
+                        .max(std::time::Duration::from_millis(1)),
+                );
             } else if RebuildPending {
                 std::thread::sleep(std::time::Duration::from_millis(2));
             } else {

@@ -33,6 +33,9 @@ mod agent;
 #[path = "../../agent_runtime/mod.rs"]
 mod agent_runtime;
 #[allow(dead_code)]
+#[path = "../../security/mod.rs"]
+mod security;
+#[allow(dead_code)]
 #[path = "../../skills/mod.rs"]
 mod skills;
 
@@ -759,8 +762,8 @@ fn SessionPanelLines(header: &CliHeader) -> Vec<Line<'static>> {
 
 fn WelcomePanelLines(header: &CliHeader) -> Vec<Line<'static>> {
     let ModeHint = match header.mode.as_str() {
-        "autonomous" => "Autonomous mode executes allowed tools directly.",
-        "agentic" => "Agentic mode uses sliced autonomous work with memory checkpoints.",
+        "autonomous" => "Autonomous mode executes file tools directly; shell commands still ask.",
+        "agentic" => "Agentic mode uses sliced autonomous work; shell commands still ask.",
         _ => "Supervised mode asks before writes/commands.",
     };
 

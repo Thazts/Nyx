@@ -1,4 +1,4 @@
-// Nyx Engine     Unreal Runtime Shim
+// Nyx Engine - Unreal Runtime Shim
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -35,11 +35,30 @@ namespace NyxUnreal
         FVector operator/(float Scale) const { return FVector(X / Scale, Y / Scale, Z / Scale); }
 
         float Size() const { return std::sqrt(X * X + Y * Y + Z * Z); }
+        float SizeSquared() const { return X * X + Y * Y + Z * Z; }
         FVector GetSafeNormal() const
         {
             const float Len = Size();
             return Len <= 0.0001f ? FVector() : *this / Len;
         }
+        static float DotProduct(const FVector& A, const FVector& B) { return A.X * B.X + A.Y * B.Y + A.Z * B.Z; }
+        static FVector CrossProduct(const FVector& A, const FVector& B)
+        {
+            return FVector(
+                A.Y * B.Z - A.Z * B.Y,
+                A.Z * B.X - A.X * B.Z,
+                A.X * B.Y - A.Y * B.X);
+        }
+    };
+
+    struct FMath
+    {
+        static float Abs(float Value) { return std::abs(Value); }
+        static float Clamp(float Value, float Min, float Max) { return std::max(Min, std::min(Max, Value)); }
+        static float Sqrt(float Value) { return std::sqrt(Value); }
+        static float Sin(float Value) { return std::sin(Value); }
+        static float Cos(float Value) { return std::cos(Value); }
+        static float Lerp(float A, float B, float Alpha) { return A + (B - A) * Clamp(Alpha, 0.0f, 1.0f); }
     };
 
     struct FRotator
@@ -162,6 +181,11 @@ namespace NyxUnreal
         }
         void SetPhysicsLinearVelocity(FVector Velocity) { LinearVelocity = Velocity; }
         void SetPhysicsAngularVelocityInRadians(FVector Velocity) { AngularVelocity = Velocity; }
+        void SetLinearDamping(float Value) { LinearDamping = Value; }
+        void SetAngularDamping(float Value) { AngularDamping = Value; }
+        void SetPhysMaterialOverride(const std::string& InMaterial) { Material = InMaterial; }
+        void SetFriction(float Value) { Friction = Value; }
+        void SetRestitution(float Value) { Restitution = Value; }
 
         void AddForce(FVector InForce)
         {
@@ -171,8 +195,6 @@ namespace NyxUnreal
         void AddImpulse(FVector InImpulse)
         {
             Impulse = Impulse + InImpulse;
-            const float SafeMass = std::max(MassInKg, 0.001f);
-            LinearVelocity = LinearVelocity + InImpulse * (1.0f / SafeMass);
         }
     };
 
@@ -584,6 +606,9 @@ namespace NyxUnreal
                 {"RotVelocity", Vec(Component ? Component->AngularVelocity : FVector())},
                 {"Force", Vec(Component ? Component->Force : FVector())},
                 {"Impulse", Vec(Component ? Component->Impulse : FVector())},
+                {"UseGravity", FNyxValue(Component ? Component->bEnableGravity : true)},
+                {"LinearDamping", FNyxValue(Component ? Component->LinearDamping : 0.01f)},
+                {"AngularDamping", FNyxValue(Component ? Component->AngularDamping : 0.0f)},
                 {"Massless", FNyxValue(Component ? Component->bMassless : false)},
                 {"Mass", FNyxValue(Component ? Component->MassInKg : 0.0f)},
                 {"Density", FNyxValue(1.0f)},

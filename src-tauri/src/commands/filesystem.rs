@@ -13,23 +13,6 @@ pub struct FileMetadata {
     pub modified: String,
 }
 
-#[tauri::command]
-pub fn list_files(path: String) -> Result<Vec<String>, String> {
-    let entries = fs::read_dir(&path).map_err(|e| e.to_string())?;
-    let mut files = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        if path.is_file() {
-            if let Some(name) = path.file_name() {
-                files.push(name.to_string_lossy().to_string());
-            }
-        }
-    }
-    files.sort();
-    Ok(files)
-}
-
 fn SkipDir(name: &str) -> bool {
     matches!(
         name,
@@ -50,10 +33,106 @@ fn SkipDir(name: &str) -> bool {
     ) || name.starts_with(".aider")
 }
 
-#[tauri::command]
-pub fn list_files_recursive(path: String) -> Result<Vec<String>, String> {
+fn NormalizePath(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+fn WorkspaceRoot(app_state: &State<'_, AppState>) -> Result<PathBuf, String> {
+    let workspace = app_state
+        .workspace_path
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or("No workspace selected")?;
+    let root = fs::canonicalize(&workspace).map_err(|e| format!("Invalid workspace: {e}"))?;
+    if !root.is_dir() {
+        return Err("Workspace is not a directory".to_string());
+    }
+    Ok(root)
+}
+
+fn ResolveWorkspacePath(path: &str, app_state: &State<'_, AppState>) -> Result<PathBuf, String> {
+    let root = WorkspaceRoot(app_state)?;
+    let raw = Path::new(path);
+    let candidate = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        root.join(raw)
+    };
+    let canonical = fs::canonicalize(&candidate).map_err(|e| format!("Path not found: {e}"))?;
+    if !canonical.starts_with(&root) {
+        return Err("Path is outside the selected workspace".to_string());
+    }
+    Ok(canonical)
+}
+
+fn ResolveWorkspaceWritePath(
+    path: &str,
+    app_state: &State<'_, AppState>,
+) -> Result<PathBuf, String> {
+    let root = WorkspaceRoot(app_state)?;
+    let raw = Path::new(path);
+    let candidate = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        root.join(raw)
+    };
+
+    if candidate.exists() {
+        let canonical =
+            fs::canonicalize(&candidate).map_err(|e| format!("Invalid write path: {e}"))?;
+        if !canonical.starts_with(&root) {
+            return Err("Path is outside the selected workspace".to_string());
+        }
+        return Ok(canonical);
+    }
+
+    let normalized = NormalizePath(&candidate);
+    if !normalized.starts_with(&root) {
+        return Err("Path is outside the selected workspace".to_string());
+    }
+    Ok(normalized)
+}
+
+fn SetWorkspace(
+    path: PathBuf,
+    app_state: State<'_, AppState>,
+    window: tauri::Window,
+) -> Result<String, String> {
+    let WorkspacePath = fs::canonicalize(&path)
+        .map_err(|e| format!("Invalid workspace path: {e}"))?
+        .to_string_lossy()
+        .to_string();
+    if !Path::new(&WorkspacePath).is_dir() {
+        return Err("Workspace path is not a directory".to_string());
+    }
+    *app_state.workspace_path.lock().map_err(|e| e.to_string())? = Some(WorkspacePath.clone());
+    if let Ok(mut guard) = app_state.watcher_shutdown.lock() {
+        if let Some(old) = guard.take() {
+            let _ = old.send(());
+        }
+    }
+    let shutdown_tx = spawn_workspace_watcher(WorkspacePath.clone(), window);
+    if let Ok(mut guard) = app_state.watcher_shutdown.lock() {
+        *guard = Some(shutdown_tx);
+    }
+
+    Ok(WorkspacePath)
+}
+
+fn ListFilesRecursivePath(path: &Path) -> Result<Vec<String>, String> {
     let mut result = Vec::new();
-    let entries = fs::read_dir(&path).map_err(|e| e.to_string())?;
+    let entries = fs::read_dir(path).map_err(|e| e.to_string())?;
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
         let EntryPath = entry.path();
@@ -64,7 +143,7 @@ pub fn list_files_recursive(path: String) -> Result<Vec<String>, String> {
         if EntryPath.is_file() {
             result.push(EntryPath.to_string_lossy().to_string());
         } else if EntryPath.is_dir() && !SkipDir(&name) {
-            let SubFiles = list_files_recursive(EntryPath.to_string_lossy().to_string())?;
+            let SubFiles = ListFilesRecursivePath(&EntryPath)?;
             result.extend(SubFiles);
         }
     }
@@ -73,15 +152,44 @@ pub fn list_files_recursive(path: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+pub fn list_files(path: String, app_state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let path = ResolveWorkspacePath(&path, &app_state)?;
+    let entries = fs::read_dir(&path).map_err(|e| e.to_string())?;
+    let mut files = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(name) = path.file_name() {
+                files.push(name.to_string_lossy().to_string());
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+#[tauri::command]
+pub fn list_files_recursive(
+    path: String,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let path = ResolveWorkspacePath(&path, &app_state)?;
+    ListFilesRecursivePath(&path)
+}
+
+#[tauri::command]
 pub fn open_file(path: String, app_state: State<'_, AppState>) -> Result<String, String> {
+    let path = ResolveWorkspacePath(&path, &app_state)?;
+    let PathText = path.to_string_lossy().to_string();
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     {
         let mut OpenFiles = app_state.open_files.lock().map_err(|e| e.to_string())?;
-        if !OpenFiles.iter().any(|p| p == &path) {
-            OpenFiles.push(path.clone());
+        if !OpenFiles.iter().any(|p| p == &PathText) {
+            OpenFiles.push(PathText.clone());
         }
     }
-    *app_state.active_file.lock().map_err(|e| e.to_string())? = Some(path);
+    *app_state.active_file.lock().map_err(|e| e.to_string())? = Some(PathText);
     Ok(content)
 }
 
@@ -91,14 +199,19 @@ pub fn save_file(
     content: String,
     app_state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let path = ResolveWorkspaceWritePath(&path, &app_state)?;
+    let PathText = path.to_string_lossy().to_string();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     fs::write(&path, &content).map_err(|e| e.to_string())?;
-    let metadata = ReadFileMetadata(&path)?;
+    let metadata = ReadFileMetadata(&PathText)?;
     app_state
         .file_metadata
         .lock()
         .map_err(|e| e.to_string())?
         .insert(
-            path.clone(),
+            PathText.clone(),
             FileRecord {
                 size: metadata.size,
                 modified: metadata.modified,
@@ -106,18 +219,23 @@ pub fn save_file(
         );
     {
         let mut OpenFiles = app_state.open_files.lock().map_err(|e| e.to_string())?;
-        if !OpenFiles.iter().any(|p| p == &path) {
-            OpenFiles.push(path.clone());
+        if !OpenFiles.iter().any(|p| p == &PathText) {
+            OpenFiles.push(PathText.clone());
         }
     }
-    *app_state.active_file.lock().map_err(|e| e.to_string())? = Some(path);
+    *app_state.active_file.lock().map_err(|e| e.to_string())? = Some(PathText);
     Ok(())
 }
 
 #[tauri::command]
 pub fn run_terminal_command(command: String, app_state: State<'_, AppState>) -> Vec<String> {
+    let cwd = match WorkspaceRoot(&app_state) {
+        Ok(path) => path,
+        Err(e) => return vec![format!("$ {}", command), format!("err: {}", e)],
+    };
     let output = std::process::Command::new("cmd")
         .args(["/C", &command])
+        .current_dir(cwd)
         .output();
     let lines = match output {
         Ok(out) => {
@@ -213,24 +331,18 @@ pub fn select_folder(
 ) -> Result<String, String> {
     let dialog = rfd::FileDialog::new().pick_folder();
     match dialog {
-        Some(path) => {
-            let WorkspacePath = path.to_string_lossy().to_string();
-            *app_state.workspace_path.lock().map_err(|e| e.to_string())? =
-                Some(WorkspacePath.clone());
-            if let Ok(mut guard) = app_state.watcher_shutdown.lock() {
-                if let Some(old) = guard.take() {
-                    let _ = old.send(());
-                }
-            }
-            let shutdown_tx = spawn_workspace_watcher(WorkspacePath.clone(), window);
-            if let Ok(mut guard) = app_state.watcher_shutdown.lock() {
-                *guard = Some(shutdown_tx);
-            }
-
-            Ok(WorkspacePath)
-        }
+        Some(path) => SetWorkspace(path, app_state, window),
         None => Err("No folder selected".to_string()),
     }
+}
+
+#[tauri::command]
+pub fn open_workspace(
+    path: String,
+    app_state: State<'_, AppState>,
+    window: tauri::Window,
+) -> Result<String, String> {
+    SetWorkspace(PathBuf::from(path), app_state, window)
 }
 
 #[tauri::command]
@@ -238,13 +350,15 @@ pub fn get_file_metadata(
     path: String,
     app_state: State<'_, AppState>,
 ) -> Result<FileMetadata, String> {
-    let metadata = ReadFileMetadata(&path)?;
+    let path = ResolveWorkspacePath(&path, &app_state)?;
+    let PathText = path.to_string_lossy().to_string();
+    let metadata = ReadFileMetadata(&PathText)?;
     app_state
         .file_metadata
         .lock()
         .map_err(|e| e.to_string())?
         .insert(
-            path,
+            PathText,
             FileRecord {
                 size: metadata.size,
                 modified: metadata.modified.clone(),
@@ -319,7 +433,16 @@ fn IsLeap(y: i32) -> bool {
 }
 
 #[tauri::command]
-pub fn capture_command(command: String, cwd: String) -> Vec<String> {
+pub fn capture_command(
+    command: String,
+    cwd: String,
+    app_state: State<'_, AppState>,
+) -> Vec<String> {
+    let cwd = match ResolveWorkspacePath(&cwd, &app_state) {
+        Ok(path) if path.is_dir() => path,
+        Ok(_) => return vec!["err: cwd is not a directory".to_string()],
+        Err(e) => return vec![format!("err: {}", e)],
+    };
     let output = std::process::Command::new("cmd")
         .args(["/C", &command])
         .current_dir(&cwd)
@@ -353,6 +476,7 @@ pub fn capture_command(command: String, cwd: String) -> Vec<String> {
 
 #[tauri::command]
 pub fn delete_path(path: String, app_state: State<'_, AppState>) -> Result<(), String> {
+    let path = ResolveWorkspacePath(&path, &app_state)?;
     let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
     let IsDir = meta.is_dir();
     if meta.is_dir() {
@@ -388,16 +512,20 @@ pub fn rename_path(
     new_name: String,
     app_state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let old = std::path::Path::new(&path);
+    if Path::new(&new_name).file_name().and_then(|n| n.to_str()) != Some(new_name.as_str()) {
+        return Err("New name must not contain path separators".to_string());
+    }
+    let old = ResolveWorkspacePath(&path, &app_state)?;
     let parent = old.parent().ok_or("No parent directory")?;
     let new = parent.join(&new_name);
-    let IsDir = fs::metadata(&path).map_err(|e| e.to_string())?.is_dir();
-    fs::rename(&path, &new).map_err(|e| e.to_string())?;
-    let NewPath = new.to_string_lossy().to_string();
+    let NewChecked = ResolveWorkspaceWritePath(&new.to_string_lossy(), &app_state)?;
+    let IsDir = fs::metadata(&old).map_err(|e| e.to_string())?.is_dir();
+    fs::rename(&old, &NewChecked).map_err(|e| e.to_string())?;
+    let NewPath = NewChecked.to_string_lossy().to_string();
     {
         let mut OpenFiles = app_state.open_files.lock().map_err(|e| e.to_string())?;
         for OpenPath in OpenFiles.iter_mut() {
-            if let Some(rebased) = RebasePath(OpenPath, old, &new, IsDir) {
+            if let Some(rebased) = RebasePath(OpenPath, &old, &NewChecked, IsDir) {
                 *OpenPath = rebased;
             }
         }
@@ -406,7 +534,7 @@ pub fn rename_path(
         let mut ActiveFile = app_state.active_file.lock().map_err(|e| e.to_string())?;
         if let Some(active) = ActiveFile
             .as_ref()
-            .and_then(|value| RebasePath(value, old, &new, IsDir))
+            .and_then(|value| RebasePath(value, &old, &NewChecked, IsDir))
         {
             *ActiveFile = Some(active);
         }
@@ -415,7 +543,7 @@ pub fn rename_path(
         let mut metadata = app_state.file_metadata.lock().map_err(|e| e.to_string())?;
         let entries: Vec<(String, FileRecord)> = metadata.drain().collect();
         for (file_path, record) in entries {
-            let key = RebasePath(&file_path, old, &new, IsDir).unwrap_or(file_path);
+            let key = RebasePath(&file_path, &old, &NewChecked, IsDir).unwrap_or(file_path);
             metadata.insert(key, record);
         }
     }
@@ -423,7 +551,8 @@ pub fn rename_path(
 }
 
 #[tauri::command]
-pub fn create_folder(path: String) -> Result<(), String> {
+pub fn create_folder(path: String, app_state: State<'_, AppState>) -> Result<(), String> {
+    let path = ResolveWorkspaceWritePath(&path, &app_state)?;
     fs::create_dir_all(&path).map_err(|e| e.to_string())
 }
 

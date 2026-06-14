@@ -41,17 +41,19 @@
     "publisher": "Thazts",
     "externalBin": [
       "extra-bin/nyx-keyman",
-       "extra-bin/NyxCli"
+       "extra-bin/NyxCli",
+       "extra-bin/Charon"
      ],
     "resources": [
       "skills/FengshuiProtocol.md",
       "skills/SelfHelp.md",
       "skills/LuaLuau.md",
-      "skills/ViewportManual.md"
+      "skills/ViewportManual.md",
+      "skills/SecurityReview.md"
     ]
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:1420 ws://localhost:1420"
     },
     "windows": [
       {

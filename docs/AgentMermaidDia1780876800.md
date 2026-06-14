@@ -23,7 +23,6 @@ flowchart TD
         SkillResolverUi["Skill intent filters\nFengshui/SelfHelp/Lua/Viewport"]:::frontendStyle
         AiService["AiService.StartAgent(...)\nprovider, messages, workspace, mode, skills"]:::frontendStyle
     end
-
     subgraph TauriBridge["Tauri bridge"]
         InvokeStart["@tauri invoke\nai_start_agent"]:::bridgeStyle
         EventBus["Tauri events\nai_token / ai_activity / ai_tool_call / ai_tool_result\nai_change_applied / ai_question_request / ai_rate_limit / ai_done"]:::eventStyle

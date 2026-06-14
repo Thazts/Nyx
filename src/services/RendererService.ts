@@ -157,6 +157,10 @@ export const RendererService = {
         return invoke("renderer_delete_part", { id: Config.Id });
     },
 
+    async ReturnToScript(Config: { Id: string }): Promise<void> {
+        return invoke("renderer_return_to_script", { id: Config.Id });
+    },
+
     async SubdivideSelected(): Promise<void> {
         return invoke("renderer_subdivide_selected");
     },

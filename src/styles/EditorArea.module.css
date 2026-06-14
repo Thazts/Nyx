@@ -86,8 +86,8 @@
 
 .ActiveTab {
     background: var(--surf);
-    border-bottom: 2px solid var(--acc);
-    color: var(--acc);
+    border-bottom: 2px solid var(--tab-color, var(--acc));
+    color: var(--tab-color, var(--acc));
 }
 
 .ActiveTab:hover {
@@ -98,7 +98,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--acc);
+    background: var(--tab-color, var(--acc));
     flex-shrink: 0;
     transition: transform var(--td) var(--spring), box-shadow var(--td) var(--spring),
                 background var(--tf), border var(--tf);
@@ -106,7 +106,7 @@
 
 .Tab:hover .TabDot {
     transform: scale(1.4);
-    box-shadow: 0 0 8px rgba(212,176,204,0.5);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--tab-color, var(--acc)) 48%, transparent);
 }
 
 .TabModified .TabDot {
@@ -674,6 +674,67 @@
     width: 48px;
     height: 1px;
     background: var(--brd);
+}
+
+.WelcomeWhatsNew {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 18px;
+    max-width: 100%;
+}
+
+.WelcomeNotice {
+    width: 200px;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    border-radius: 9px;
+    border: 1px solid rgba(212,184,122,0.28);
+    border-left: 2px solid rgba(212,184,122,0.6);
+    background: linear-gradient(180deg, rgba(212,184,122,0.085), rgba(212,184,122,0.035));
+    padding: 11px 12px 12px;
+}
+
+.WelcomeNoticeKicker {
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #D4B87A;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.WelcomeNoticeTitle {
+    margin-top: 4px;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: 'Syne', sans-serif;
+    color: var(--txt);
+}
+
+.WelcomeNoticeBody {
+    margin: 7px 0 0 0;
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--txt2);
+}
+
+.WelcomeNoticeBody strong {
+    color: #E4CB94;
+    font-weight: 700;
+}
+
+.WelcomeNoticeEta {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(212,184,122,0.2);
+    font-size: 9px;
+    line-height: 1.5;
+    color: #D4B87A;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.02em;
 }
 
 .WelcomeChangelog {

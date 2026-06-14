@@ -28,13 +28,6 @@ const SourceControlIcon = () => (
     </svg>
 );
 
-const ExtensionsIcon = () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M2 8h3v3H2zM2 3h3v3H2zM7 3h3v3H7z"/>
-        <path d="M10 6h2a2 2 0 012 2v5H7v-5a2 2 0 012-2h1"/>
-    </svg>
-);
-
 const SceneIcon = () => (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M8 2l5.2 3v6L8 14l-5.2-3V5L8 2z"/>
@@ -50,9 +43,9 @@ const NotesIcon = () => (
 );
 
 const SettingsIcon = () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="8" cy="8" r="2"/>
-        <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
     </svg>
 );
 
@@ -60,7 +53,6 @@ const Views = [
     { Id: "explorer",       Label: "Explorer",       Icon: ExplorerIcon },
     { Id: "search",         Label: "Search",         Icon: SearchIcon },
     { Id: "source-control", Label: "Source Control", Icon: SourceControlIcon },
-    { Id: "extensions",     Label: "Extensions",     Icon: ExtensionsIcon },
     { Id: "scene",          Label: "Scene",          Icon: SceneIcon },
 ];
 

@@ -19,6 +19,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
+use super::ownership;
 use super::{CameraInput, SceneState, SelectedFace, UndoHistory};
 extern "system" {
     fn SetCapture(hwnd: HWND) -> HWND;
@@ -89,6 +90,14 @@ fn MarkEditInteraction() {
 }
 
 fn RayAabb(o: glam::Vec3, d: glam::Vec3, mn: glam::Vec3, mx: glam::Vec3) -> Option<f32> {
+    let NonZero = |v: f32| {
+        if v.abs() < 1e-8 {
+            1e-8_f32.copysign(v)
+        } else {
+            v
+        }
+    };
+    let d = glam::Vec3::new(NonZero(d.x), NonZero(d.y), NonZero(d.z));
     let inv = 1.0 / d;
     let mut tmin = (mn.x - o.x) * inv.x;
     let mut tmax = (mx.x - o.x) * inv.x;
@@ -321,6 +330,51 @@ fn ReconcilePhysics(s: &mut SceneState) {
     s.physics = physics;
 }
 
+fn ClaimTransform(s: &mut SceneState, id: &str) {
+    let mut Ordinal = 0usize;
+    let mut Claim: Option<(ownership::OwnedTransform, ownership::PartSignature, bool)> = None;
+    for cmd in &s.commands {
+        if !IsEditableObject(cmd) {
+            continue;
+        }
+        let ThisOrdinal = Ordinal;
+        Ordinal += 1;
+        if cmd.get("Id").and_then(|v| v.as_str()) == Some(id) {
+            let mut Transform = ownership::ReadTransform(cmd);
+            Transform.has_rotation = true;
+            Transform.has_size = true;
+            let UserOwnable = cmd
+                .get("UserOwnable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Claim = Some((
+                Transform,
+                ownership::SignatureOf(cmd, ThisOrdinal),
+                UserOwnable,
+            ));
+            break;
+        }
+    }
+    let Some((Transform, Signature, UserOwnable)) = Claim else {
+        return;
+    };
+    match s.ownership.get_mut(id) {
+        Some(Existing) => {
+            Existing.phase = ownership::OwnershipPhase::Held;
+            Existing.transform = Transform;
+            Existing.signature = Signature;
+            Existing.user_ownable = UserOwnable;
+            Existing.missing_ticks = 0;
+        }
+        None => {
+            s.ownership.insert(
+                id.to_string(),
+                ownership::PartOwnership::held(Transform, Signature, UserOwnable),
+            );
+        }
+    }
+}
+
 fn GizmoHit(s: &SceneState, NdcX: f32, NdcY: f32) -> Option<String> {
     let sel = s.selected.as_ref()?.clone();
     let (o, d) = s.camera.GetRay(NdcX, NdcY);
@@ -536,6 +590,7 @@ fn DoMoveDrag(
         cmd["CFrame"] = cf;
         break;
     }
+    ClaimTransform(s, &sel);
     ReconcilePhysics(s);
     s.dirty = true;
 }
@@ -619,6 +674,7 @@ fn DoRotateDrag(
         cmd["CFrame"] = ncf;
         break;
     }
+    ClaimTransform(s, &sel);
     ReconcilePhysics(s);
     s.dirty = true;
 }
@@ -665,6 +721,7 @@ fn DoScaleDrag(
         }
         break;
     }
+    ClaimTransform(s, &sel);
     ReconcilePhysics(s);
     s.dirty = true;
 }
@@ -816,10 +873,19 @@ unsafe extern "system" fn WndProc(hwnd: HWND, msg: u32, wparam: usize, lparam: i
 
             if mode == DragMode::GizmoDrag {
                 MarkEditInteraction();
+                let mut KeptIds: Option<Vec<String>> = None;
                 if let Some(sa) = VP_STATE.get() {
                     if let Ok(mut s) = sa.lock() {
                         s.drag_undo_pushed = false;
+                        let Now = std::time::Instant::now();
+                        for Owned in s.ownership.values_mut() {
+                            Owned.release(Now);
+                        }
+                        KeptIds = Some(ownership::KeptIds(&s.ownership));
                     }
+                }
+                if let (Some(Ids), Some(app)) = (KeptIds, VP_APP.get()) {
+                    let _ = app.emit_all("vp-ownership", Ids);
                 }
             }
 

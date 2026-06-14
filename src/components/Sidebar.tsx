@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import styles from "../styles/Sidebar.module.css";
+import { GetFileLanguageColor } from "../services/LanguageMeta";
 
 interface FileEntry {
     Name: string;
@@ -25,29 +26,8 @@ interface PendingRename {
     Name: string;
 }
 
-const ExtIconClass: Record<string, string> = {
-    lua: "IconGreen", luau: "IconGreen",
-    ts: "IconBlue", tsx: "IconBlue", js: "IconAmber", jsx: "IconAmber",
-    rs: "IconAmber",
-    py: "IconGreen",
-    css: "IconPurple",
-    json: "IconAmber", toml: "IconAmber", yaml: "IconAmber", yml: "IconAmber",
-    html: "IconPink", htm: "IconPink", xml: "IconPink",
-    md: "IconMuted",
-    c: "IconBlue", h: "IconBlue", cpp: "IconBlue", hpp: "IconBlue", cc: "IconBlue",
-    go: "IconBlue",
-    sh: "IconAmber", bash: "IconAmber",
-    sql: "IconPurple",
-    cs: "IconBlue", java: "IconBlue",
-    wgsl: "IconGreen", glsl: "IconGreen", vert: "IconGreen", frag: "IconGreen",
-    obj: "IconOrange", fbx: "IconOrange", gltf: "IconOrange", glb: "IconOrange",
-    blend: "IconOrange", dae: "IconOrange", stl: "IconOrange", ply: "IconOrange",
-};
-
-function GetFileIconClass(Name: string): string {
-    const Ext = Name.split(".").pop()?.toLowerCase() ?? "";
-    return ExtIconClass[Ext] ?? "IconMuted";
-}
+const FileColorStyle = (Name: string): React.CSSProperties =>
+    ({ "--file-color": GetFileLanguageColor(Name) } as React.CSSProperties);
 
 const SortEntries = (Entries: FileEntry[]): FileEntry[] =>
     [...Entries].sort((A, B) => {
@@ -303,7 +283,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             SetCtxMenu({ Entry, X: E.clientX, Y: E.clientY, IsRoot: Entry.Path === RootDir });
                         }}
                     >
-                        <span className={`${styles.Icon} ${Entry.IsDirectory ? "" : styles[GetFileIconClass(Entry.Name)]}`}>
+                        <span
+                            className={`${styles.Icon} ${Entry.IsDirectory ? "" : styles.FileIcon}`}
+                            style={Entry.IsDirectory ? undefined : FileColorStyle(Entry.Name)}
+                        >
                             {Entry.IsDirectory ? FolderSvg(IsCollapsed && !IsCollapsing) : FileSvg()}
                         </span>
                         <span className={styles.Name}>{Entry.Name}</span>

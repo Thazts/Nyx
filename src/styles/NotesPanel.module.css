@@ -31,6 +31,24 @@
     to   { transform: translateX(0);    opacity: 1; }
 }
 
+.Panel.Closing {
+    animation: SlideOut 0.2s var(--spring) both;
+}
+
+@keyframes SlideOut {
+    from { transform: translateX(0);    opacity: 1; }
+    to   { transform: translateX(14px); opacity: 0; }
+}
+
+.Backdrop.Closing {
+    animation: BdOut 0.16s ease both;
+}
+
+@keyframes BdOut {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+
 .Header {
     display: flex;
     align-items: center;

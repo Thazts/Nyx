@@ -12,6 +12,10 @@ export interface PhysicsState {
     Density?:     number;
     Friction?:    number;
     Elasticity?:  number;
+    UseGravity?:  boolean;
+    GravityScale?: number;
+    LinearDamping?: number;
+    AngularDamping?: number;
     LinearSpeed?: number;
 }
 
@@ -28,6 +32,8 @@ export type SceneCommand =
         AssemblyLinearVelocity?: PhysicsVector; Velocity?: PhysicsVector;
         AssemblyAngularVelocity?: PhysicsVector; RotVelocity?: PhysicsVector;
         Force?: PhysicsVector; Impulse?: PhysicsVector;
+        UseGravity?: boolean; GravityScale?: number;
+        LinearDamping?: number; AngularDamping?: number;
         Massless?: boolean; Mass?: number; Density?: number; Friction?: number; Elasticity?: number;
         Physics?: PhysicsState }
     | { Cmd: "AddMesh";     Id: string; Name: string; Position: Vec3; Size: Vec3;

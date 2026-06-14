@@ -295,8 +295,11 @@ impl SceneRenderer {
             match cmd.get("Cmd").and_then(|v| v.as_str()) {
                 Some("AddPart") => {
                     let Shape = cmd.get("Shape").and_then(|v| v.as_str()).unwrap_or("Block");
-                    InstanceLists[ShapeIndex(Shape)]
-                        .push(ReadInstance(cmd, [4.0, 1.2, 2.0], [0.64, 0.64, 0.64]));
+                    InstanceLists[ShapeIndex(Shape)].push(ReadInstance(
+                        cmd,
+                        [4.0, 1.2, 2.0],
+                        [0.64, 0.64, 0.64],
+                    ));
                 }
                 Some("AddMesh") => {
                     let mut Key = match cmd.get("Id").and_then(|v| v.as_str()) {
@@ -449,7 +452,10 @@ impl SceneRenderer {
                     };
                     pass.set_vertex_buffer(0, Cached.draw.vertex_buf.slice(..));
                     pass.set_vertex_buffer(1, Cached.draw.instance_buf.slice(..));
-                    pass.set_index_buffer(Cached.draw.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.set_index_buffer(
+                        Cached.draw.index_buf.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
                     pass.draw_indexed(0..Cached.draw.index_count, 0, 0..1);
                 }
             }
@@ -563,16 +569,15 @@ mod tests {
     #[test]
     fn ShadersAndPipelinesValidate() {
         let instance = wgpu::Instance::default();
-        let Some(adapter) = pollster::block_on(
-            instance.request_adapter(&wgpu::RequestAdapterOptions::default()),
-        ) else {
+        let Some(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        else {
             eprintln!("no GPU adapter available; skipping shader validation");
             return;
         };
-        let (device, _queue) = pollster::block_on(
-            adapter.request_device(&wgpu::DeviceDescriptor::default(), None),
-        )
-        .expect("request_device");
+        let (device, _queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+                .expect("request_device");
         let _ = SceneRenderer::new(&device, wgpu::TextureFormat::Bgra8UnormSrgb, 4, 4);
     }
 }

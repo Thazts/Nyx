@@ -33,6 +33,7 @@ const RendererRegistryKey = {
     GizmoMode:               "move",  // "move" | "rotate" | "scale"
     SelectedPartId:          null,    // string | null
     SelectedFace:            null,    // { PartId, FaceIndex } | null
+    OwnedParts:              [],      // string[] — part ids the user has taken from the script (Kept)
     ViewportActive:          false,
     ViewportPath:            null,    // string | null
     ViewportProfile:         null,    // string | null
@@ -58,7 +59,7 @@ const SettingsRegistryKey = {
 
 const APP_KEYS      = ["AppReady", "WorkspacePath", "RecentPaths", "ActiveFile", "AppStatus", "IsLoading", "IsRunning"] as const;
 const EDITOR_KEYS   = ["TerminalOutput", "RunOutput", "OpenTabs", "FileTree", "FileContent", "DiskContent", "ActiveTabModified", "CollapsedFolders", "SelectedEntry", "SelectedMetadata", "CursorLine", "CursorCol", "SavedFlash", "ExternalContentVersion", "GitBranch", "DisplayLanguage"] as const;
-const RENDERER_KEYS = ["GizmoMode", "SelectedPartId", "SelectedFace", "ViewportActive", "ViewportPath", "ViewportProfile", "LastViewportInteraction"] as const;
+const RENDERER_KEYS = ["GizmoMode", "SelectedPartId", "SelectedFace", "OwnedParts", "ViewportActive", "ViewportPath", "ViewportProfile", "LastViewportInteraction"] as const;
 const AI_KEYS       = ["AiProvider", "AiMode", "AiActivity", "AiStreaming", "AiPendingApproval", "AiLastChange", "AiChangedFiles", "AiTaskSlice"] as const;
 const SETTINGS_KEYS = ["AnthropicKeySet", "DeepseekKeySet", "ObsidianVaultPath"] as const;
 

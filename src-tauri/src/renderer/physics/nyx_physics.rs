@@ -57,6 +57,9 @@ struct NyxBody {
     AngularVelocity: Vec3,
     Force: Vec3,
     Impulse: Vec3,
+    GravityScale: f32,
+    LinearDamping: f32,
+    AngularDamping: f32,
     Anchored: bool,
     CanCollide: bool,
     Massless: bool,
@@ -100,11 +103,13 @@ impl NyxPhysics {
     }
 
     pub fn StepCommands(&mut self, Commands: &mut [Value], DeltaTime: f32) -> bool {
-        if self
-            .Bodies
-            .iter()
-            .all(|Body| Body.InvMass <= 0.0 || Body.Sleeping)
-        {
+        let AllIdle = self.Bodies.iter().all(|Body| {
+            Body.InvMass <= 0.0
+                || (Body.Sleeping
+                    && Body.Impulse.length_squared() == 0.0
+                    && Body.Force.length_squared() == 0.0)
+        });
+        if AllIdle {
             return false;
         }
 
@@ -218,6 +223,25 @@ impl NyxPhysics {
                     .unwrap_or(Vec3::ZERO),
             );
 
+            let UseGravity = ReadBool(Command.get("UseGravity"), true);
+            let GravityScale = if UseGravity {
+                ReadF32(Command.get("GravityScale"), 1.0)
+            } else {
+                0.0
+            };
+            let LinearDamping = Command
+                .get("LinearDamping")
+                .or_else(|| Command.get("Drag"))
+                .map(|Value| ReadF32(Some(Value), self.Profile.LinearDamping))
+                .unwrap_or(self.Profile.LinearDamping)
+                .max(0.0);
+            let AngularDamping = Command
+                .get("AngularDamping")
+                .or_else(|| Command.get("AngularDrag"))
+                .map(|Value| ReadF32(Some(Value), self.Profile.AngularDamping))
+                .unwrap_or(self.Profile.AngularDamping)
+                .max(0.0);
+
             self.Bodies.push(NyxBody {
                 Id,
                 CommandIndex,
@@ -227,7 +251,14 @@ impl NyxPhysics {
                 Velocity,
                 AngularVelocity,
                 Force: ReadVec3Any(Command, &["Force", "AccumulatedForce"], Vec3::ZERO),
-                Impulse: ReadVec3Any(Command, &["Impulse", "PendingImpulse"], Vec3::ZERO),
+                Impulse: if PreserveMotion && PreviousBody.is_some() {
+                    Vec3::ZERO
+                } else {
+                    ReadVec3Any(Command, &["Impulse", "PendingImpulse"], Vec3::ZERO)
+                },
+                GravityScale,
+                LinearDamping,
+                AngularDamping,
                 Anchored,
                 CanCollide,
                 Massless,
@@ -250,9 +281,6 @@ impl NyxPhysics {
 
     fn Step(&mut self, DeltaTime: f32) {
         let Gravity = Vec3::new(0.0, -self.Gravity, 0.0);
-        let LinearDamping = (1.0 - self.Profile.LinearDamping * DeltaTime).clamp(0.0, 1.0);
-        let AngularDamping = (1.0 - self.Profile.AngularDamping * DeltaTime).clamp(0.0, 1.0);
-
         for Body in &mut self.Bodies {
             if Body.InvMass <= 0.0 {
                 Body.Velocity = Vec3::ZERO;
@@ -270,7 +298,9 @@ impl NyxPhysics {
                 continue;
             }
 
-            Body.Velocity += (Gravity + Body.Force * Body.InvMass) * DeltaTime;
+            let LinearDamping = DampingFactor(Body.LinearDamping, DeltaTime);
+            let AngularDamping = DampingFactor(Body.AngularDamping, DeltaTime);
+            Body.Velocity += (Gravity * Body.GravityScale + Body.Force * Body.InvMass) * DeltaTime;
             Body.Velocity *= LinearDamping;
             Body.AngularVelocity *= AngularDamping;
             Body.Force = Vec3::ZERO;
@@ -316,9 +346,33 @@ impl NyxPhysics {
     }
 
     fn CollectContacts(&self) -> Vec<NyxContact> {
+        let Count = self.Bodies.len();
         let mut Contacts = Vec::new();
-        for A in 0..self.Bodies.len() {
-            for B in (A + 1)..self.Bodies.len() {
+        if Count < 2 {
+            return Contacts;
+        }
+        let mut Order: Vec<(usize, f32, f32)> = (0..Count)
+            .map(|Index| {
+                let Body = &self.Bodies[Index];
+                let HalfX = Body.Size.x.abs() * 0.5;
+                (Index, Body.Position.x - HalfX, Body.Position.x + HalfX)
+            })
+            .collect();
+        Order.sort_by(|Left, Right| {
+            Left.1
+                .partial_cmp(&Right.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut Active: Vec<(usize, f32)> = Vec::new();
+        for (Index, MinX, MaxX) in Order {
+            Active.retain(|&(_, ActiveMaxX)| ActiveMaxX >= MinX);
+            for &(Other, _) in &Active {
+                let (A, B) = if Index < Other {
+                    (Index, Other)
+                } else {
+                    (Other, Index)
+                };
                 let BodyA = &self.Bodies[A];
                 let BodyB = &self.Bodies[B];
                 if !BodyA.CanCollide
@@ -331,6 +385,7 @@ impl NyxPhysics {
                     Contacts.push(Contact);
                 }
             }
+            Active.push((Index, MaxX));
         }
         Contacts
     }
@@ -452,8 +507,10 @@ impl NyxPhysics {
             Object.insert("Mass".to_string(), json!(Body.Mass));
             Object.insert("Density".to_string(), json!(Body.Density));
             Object.insert("Massless".to_string(), json!(Body.Massless));
-
-            // { Profile, Sleeping, Anchored, CanCollide, Shape, Material, Mass, Density, Friction, Elasticity, LinearSpeed }
+            Object.insert("UseGravity".to_string(), json!(Body.GravityScale != 0.0));
+            Object.insert("GravityScale".to_string(), json!(Body.GravityScale));
+            Object.insert("LinearDamping".to_string(), json!(Body.LinearDamping));
+            Object.insert("AngularDamping".to_string(), json!(Body.AngularDamping));
             Object.insert(
                 "Physics".to_string(),
                 json!({
@@ -467,6 +524,10 @@ impl NyxPhysics {
                     "Density": Body.Density,
                     "Friction": Body.Friction,
                     "Elasticity": Body.Restitution,
+                    "UseGravity": Body.GravityScale != 0.0,
+                    "GravityScale": Body.GravityScale,
+                    "LinearDamping": Body.LinearDamping,
+                    "AngularDamping": Body.AngularDamping,
                     "LinearSpeed": Body.Velocity.length(),
                 }),
             );
@@ -549,6 +610,14 @@ fn CombineFriction(A: f32, B: f32, Mode: NyxFrictionMode) -> f32 {
     }
 }
 
+fn DampingFactor(Damping: f32, DeltaTime: f32) -> f32 {
+    if Damping <= 0.0 {
+        1.0
+    } else {
+        1.0 / (1.0 + Damping * DeltaTime)
+    }
+}
+
 fn ReadPosition(Command: &Value) -> Vec3 {
     if let Some(CFrame) = Command.get("CFrame") {
         return ReadVec3(Some(CFrame), Vec3::ZERO);
@@ -596,4 +665,131 @@ fn ReadF32(Value: Option<&Value>, Default: f32) -> f32 {
 
 fn ReadBool(Value: Option<&Value>, Default: bool) -> bool {
     Value.and_then(Value::as_bool).unwrap_or(Default)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn TestProfile() -> NyxEngineProfile {
+        NyxEngineProfile {
+            Id: "test",
+            Gravity: 196.2,
+            FixedStep: 1.0 / 240.0,
+            MaxSubsteps: 8,
+            SolverIterations: 8,
+            LinearDamping: 0.015,
+            AngularDamping: 0.08,
+            SleepSpeed: 0.05,
+            SleepDelay: 0.75,
+            MaxLinearSpeed: 6000.0,
+            ContactSlop: 0.035,
+            ContactBias: 0.018,
+            MasslessScale: 0.05,
+            RestitutionVelocityThreshold: 1.0,
+            FrictionMode: NyxFrictionMode::Average,
+            Materials: HashMap::new(),
+        }
+    }
+
+    fn Part(Id: &str, Pos: [f32; 3], Size: [f32; 3], Anchored: bool) -> Value {
+        json!({
+            "Cmd": "AddPart",
+            "Id": Id,
+            "Position": { "X": Pos[0], "Y": Pos[1], "Z": Pos[2] },
+            "Size": { "X": Size[0], "Y": Size[1], "Z": Size[2] },
+            "Anchored": Anchored,
+            "CanCollide": true,
+            "Material": "SmoothPlastic",
+        })
+    }
+    fn BrutePairs(Physics: &NyxPhysics) -> std::collections::BTreeSet<(usize, usize)> {
+        let mut Pairs = std::collections::BTreeSet::new();
+        for A in 0..Physics.Bodies.len() {
+            for B in (A + 1)..Physics.Bodies.len() {
+                let BodyA = &Physics.Bodies[A];
+                let BodyB = &Physics.Bodies[B];
+                if !BodyA.CanCollide
+                    || !BodyB.CanCollide
+                    || (BodyA.InvMass <= 0.0 && BodyB.InvMass <= 0.0)
+                {
+                    continue;
+                }
+                if ContactFor(A, BodyA, B, BodyB, Physics.Profile.ContactSlop).is_some() {
+                    Pairs.insert((A, B));
+                }
+            }
+        }
+        Pairs
+    }
+
+    #[test]
+    fn SweepAndPruneMatchesBruteForce() {
+        let mut Commands = vec![Part("ground", [0.0, 0.0, 0.0], [200.0, 1.0, 200.0], true)];
+        let mut Index = 0;
+        for X in -3..=3 {
+            for Z in -3..=3 {
+                Index += 1;
+                Commands.push(Part(
+                    &format!("p{Index}"),
+                    [X as f32 * 1.5, 2.0, Z as f32 * 1.5],
+                    [2.0, 2.0, 2.0],
+                    false,
+                ));
+            }
+        }
+        Commands.push(Part("far1", [500.0, 2.0, 0.0], [2.0, 2.0, 2.0], false));
+        Commands.push(Part("far2", [-500.0, 2.0, 0.0], [2.0, 2.0, 2.0], false));
+
+        let mut Physics = NyxPhysics::New(TestProfile());
+        Physics.Reset(&Commands);
+
+        let Optimized: std::collections::BTreeSet<(usize, usize)> = Physics
+            .CollectContacts()
+            .iter()
+            .map(|C| (C.A.min(C.B), C.A.max(C.B)))
+            .collect();
+        let Brute = BrutePairs(&Physics);
+
+        assert_eq!(
+            Optimized, Brute,
+            "sweep-and-prune must return exactly the brute-force contact pairs"
+        );
+        assert!(
+            !Brute.is_empty(),
+            "expected overlapping clusters to collide"
+        );
+    }
+
+    #[test]
+    fn OneShotImpulseNotReappliedOnReconcile() {
+        let Commands = vec![json!({
+            "Cmd": "AddPart",
+            "Id": "rocket",
+            "Position": { "X": 0.0, "Y": 500.0, "Z": 0.0 },
+            "Size": { "X": 2.0, "Y": 2.0, "Z": 2.0 },
+            "Anchored": false,
+            "CanCollide": true,
+            "Material": "SmoothPlastic",
+            "Impulse": { "X": 0.0, "Y": 120.0, "Z": 0.0 }
+        })];
+
+        let mut Physics = NyxPhysics::New(TestProfile());
+        let mut Live = Commands.clone();
+        Physics.Reset(&Live);
+        Physics.StepCommands(&mut Live, 1.0 / 60.0);
+
+        for _ in 0..60 {
+            Physics.Reconcile(&Commands);
+            Physics.StepCommands(&mut Live, 1.0 / 60.0);
+        }
+
+        let VelocityY = Physics.Bodies[0].Velocity.y;
+        assert!(
+            VelocityY < 0.0,
+            "expected the part to be falling after gravity overcomes a single \
+             impulse, but velocity.y = {VelocityY} (impulse is being re-applied)"
+        );
+    }
 }
